@@ -1,0 +1,43 @@
+name: Generate and Push Forge Feed Updates
+
+# This ensures the pipeline triggers automatically on every commit to your main branch
+on:
+  push:
+    branches:
+      - main
+
+# Grant the automation system permission to read the repo and push changes back
+permissions:
+  contents: write
+
+jobs:
+  build-and-update-feed:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Download a copy of your repo into the secure GitHub runner
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup Node environment required to run standard Feed Forge CLI compilers
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Execute your exact compiler commands to compile your server channel feed 
+      - name: Compile Forge Feed Channel
+        run: |
+          # If your compiler tool is part of npm, install it locally
+          npm install -g feed-forge-cli || true
+          
+          # Command to generate your updated feed.xml channel 
+          # (Modify paths or flags based on your exact config filename)
+          feed-forge generate --config ./forge-config.json --output ./channel/feed.xml
+
+      # 4. Automatically commit the freshly updated feed file back into your repository
+      - name: Auto-Commit Updated Feed File
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: automated channel update via Forge Feed [skip ci]"
+          file_pattern: 'channel/feed.xml'
