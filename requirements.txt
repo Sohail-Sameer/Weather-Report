@@ -1,0 +1,6 @@
+Flask>=3.0
+flask-cors>=4.0
+requests>=2.31
+python-dotenv>=1.0
+ollama>=0.4
+groq>=0.13.0
