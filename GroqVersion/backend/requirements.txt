@@ -4,3 +4,4 @@ requests>=2.31
 python-dotenv>=1.0
 ollama>=0.4
 groq>=0.13.0
+gunicorn>=23.0
