@@ -78,23 +78,27 @@ def analyze(user_query):
 
 def geocode(location_name):
     response = requests.get(
-        "https://geocoding-api.open-meteo.com/v1/search",
-        params={"name": location_name, "count": 1, "language": "en", "format": "json"},
+        "https://api.weatherapi.com/v1/search.json",
+        params={
+            "key": WEATHER_API_KEY,
+            "q": location_name,
+        },
         timeout=15,
     )
     response.raise_for_status()
     data = response.json()
 
-    if not data.get("results"):
+    if not data:
         return None
 
-    place = data["results"][0]
+    place = data[0]
+
     return {
         "name": place.get("name"),
         "country": place.get("country"),
-        "latitude": place.get("latitude"),
-        "longitude": place.get("longitude"),
-        "timezone": place.get("timezone"),
+        "latitude": place.get("lat"),
+        "longitude": place.get("lon"),
+        "timezone": place.get("tz_id"),
     }
 
 
