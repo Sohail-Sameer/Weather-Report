@@ -102,25 +102,130 @@ def geocode(location_name):
     }
 
 
+def weatherapi_code_to_wmo(code):
+    mapping = {
+        1000: 0,
+        1003: 2,
+        1006: 3,
+        1009: 3,
+        1030: 45,
+        1063: 61,
+        1066: 71,
+        1069: 51,
+        1072: 56,
+        1087: 95,
+        1114: 75,
+        1117: 75,
+        1135: 45,
+        1147: 48,
+        1150: 51,
+        1153: 53,
+        1168: 56,
+        1171: 57,
+        1180: 61,
+        1183: 63,
+        1186: 63,
+        1189: 65,
+        1192: 65,
+        1195: 65,
+        1198: 66,
+        1201: 67,
+        1204: 56,
+        1207: 57,
+        1210: 71,
+        1213: 73,
+        1216: 73,
+        1219: 75,
+        1222: 75,
+        1225: 77,
+        1237: 77,
+        1240: 80,
+        1243: 81,
+        1246: 82,
+        1249: 85,
+        1252: 86,
+        1255: 85,
+        1258: 86,
+        1261: 66,
+        1264: 67,
+        1273: 95,
+        1276: 95,
+        1279: 96,
+        1282: 99,
+    }
+
+    return mapping.get(code, 3)
+
+
 def fetch_weather(latitude, longitude, forecast_days):
+    days = max(1, min(int(forecast_days), 3))
+
     response = requests.get(
-        "https://api.open-meteo.com/v1/forecast",
+        "https://api.weatherapi.com/v1/forecast.json",
         params={
-            "latitude": latitude,
-            "longitude": longitude,
-            # is_day drives which icon (sun vs moon) the frontend shows.
-            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
-                       "precipitation,rain,weather_code,wind_speed_10m,is_day",
-            "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                     "precipitation_sum,precipitation_probability_max,"
-                     "uv_index_max,wind_speed_10m_max",
-            "forecast_days": max(1, min(int(forecast_days), 7)),
-            "timezone": "auto",
+            "key": WEATHER_API_KEY,
+            "q": f"{latitude},{longitude}",
+            "days": days,
+            "aqi": "no",
+            "alerts": "yes",
         },
         timeout=15,
     )
+
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+
+    current = data["current"]
+    forecast_days_data = data.get("forecast", {}).get("forecastday", [])
+
+    daily_time = []
+    daily_weather_code = []
+    daily_max = []
+    daily_min = []
+    daily_precip = []
+    daily_rain_prob = []
+    daily_uv = []
+    daily_wind = []
+
+    for day in forecast_days_data:
+        day_info = day.get("day", {})
+        condition = day_info.get("condition", {})
+
+        daily_time.append(day.get("date"))
+        daily_weather_code.append(
+            weatherapi_code_to_wmo(condition.get("code"))
+        )
+        daily_max.append(day_info.get("maxtemp_c"))
+        daily_min.append(day_info.get("mintemp_c"))
+        daily_precip.append(day_info.get("totalprecip_mm"))
+        daily_rain_prob.append(day_info.get("daily_chance_of_rain"))
+        daily_uv.append(day_info.get("uv"))
+        daily_wind.append(day_info.get("maxwind_kph"))
+
+    return {
+        "current": {
+            "temperature_2m": current.get("temp_c"),
+            "relative_humidity_2m": current.get("humidity"),
+            "apparent_temperature": current.get("feelslike_c"),
+            "precipitation": current.get("precip_mm"),
+            "rain": current.get("precip_mm"),
+            "weather_code": weatherapi_code_to_wmo(
+                current.get("condition", {}).get("code")
+            ),
+            "wind_speed_10m": current.get("wind_kph"),
+            "is_day": current.get("is_day"),
+        },
+        "daily": {
+            "time": daily_time,
+            "weather_code": daily_weather_code,
+            "temperature_2m_max": daily_max,
+            "temperature_2m_min": daily_min,
+            "precipitation_sum": daily_precip,
+            "precipitation_probability_max": daily_rain_prob,
+            "uv_index_max": daily_uv,
+            "wind_speed_10m_max": daily_wind,
+        },
+    }
 
 
 def build_alerts(weather_data):
