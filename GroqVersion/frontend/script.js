@@ -544,6 +544,13 @@ function renderForecast(weather) {
   const isHistorical =
     daily.temperature_2m_mean !== undefined &&
     weather.current === undefined;
+   const forecastTitle = document.getElementById("forecast-title");
+
+if (forecastTitle) {
+  forecastTitle.textContent = isHistorical
+    ? "Historical Weather"
+    : "7-Day Forecast";
+}
 
   document.getElementById("forecast-scroll").innerHTML = days
     .map((dateStr, i) => {
