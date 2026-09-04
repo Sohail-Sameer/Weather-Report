@@ -163,75 +163,40 @@ def weatherapi_code_to_wmo(code):
 
 
 def fetch_weather(latitude, longitude, forecast_days):
-    days = max(1, min(int(forecast_days), 3))
+    days = max(1, min(int(forecast_days), 16))
 
     response = requests.get(
-        "https://api.weatherapi.com/v1/forecast.json",
+        "https://api.open-meteo.com/v1/forecast",
         params={
-            "key": WEATHER_API_KEY,
-            "q": f"{latitude},{longitude}",
-            "days": days,
-            "aqi": "no",
-            "alerts": "yes",
+            "latitude": latitude,
+            "longitude": longitude,
+            "current": ",".join([
+                "temperature_2m",
+                "relative_humidity_2m",
+                "apparent_temperature",
+                "precipitation",
+                "rain",
+                "weather_code",
+                "wind_speed_10m",
+                "is_day",
+            ]),
+            "daily": ",".join([
+                "weather_code",
+                "temperature_2m_max",
+                "temperature_2m_min",
+                "precipitation_sum",
+                "precipitation_probability_max",
+                "uv_index_max",
+                "wind_speed_10m_max",
+            ]),
+            "forecast_days": days,
+            "timezone": "auto",
         },
         timeout=15,
     )
 
     response.raise_for_status()
-    data = response.json()
-
-    current = data["current"]
-    forecast_days_data = data.get("forecast", {}).get("forecastday", [])
-
-    daily_time = []
-    daily_weather_code = []
-    daily_max = []
-    daily_min = []
-    daily_precip = []
-    daily_rain_prob = []
-    daily_uv = []
-    daily_wind = []
-
-    for day in forecast_days_data:
-        day_info = day.get("day", {})
-        condition = day_info.get("condition", {})
-
-        daily_time.append(day.get("date"))
-        daily_weather_code.append(
-            weatherapi_code_to_wmo(condition.get("code"))
-        )
-        daily_max.append(day_info.get("maxtemp_c"))
-        daily_min.append(day_info.get("mintemp_c"))
-        daily_precip.append(day_info.get("totalprecip_mm"))
-        daily_rain_prob.append(day_info.get("daily_chance_of_rain"))
-        daily_uv.append(day_info.get("uv"))
-        daily_wind.append(day_info.get("maxwind_kph"))
-
-    return {
-        "current": {
-            "temperature_2m": current.get("temp_c"),
-            "relative_humidity_2m": current.get("humidity"),
-            "apparent_temperature": current.get("feelslike_c"),
-            "precipitation": current.get("precip_mm"),
-            "rain": current.get("precip_mm"),
-            "weather_code": weatherapi_code_to_wmo(
-                current.get("condition", {}).get("code")
-            ),
-            "wind_speed_10m": current.get("wind_kph"),
-            "is_day": current.get("is_day"),
-        },
-        "daily": {
-            "time": daily_time,
-            "weather_code": daily_weather_code,
-            "temperature_2m_max": daily_max,
-            "temperature_2m_min": daily_min,
-            "precipitation_sum": daily_precip,
-            "precipitation_probability_max": daily_rain_prob,
-            "uv_index_max": daily_uv,
-            "wind_speed_10m_max": daily_wind,
-        },
-    }
-
+    return response.json()
 
 def build_alerts(weather_data):
     alerts = []
