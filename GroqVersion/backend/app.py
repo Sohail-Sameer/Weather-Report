@@ -140,35 +140,32 @@ def fetch_weather(latitude, longitude, forecast_days):
     response.raise_for_status()
     return response.json()
 
-def build_alerts(weather_data):
-    alerts = []
-    current = weather_data.get("current", {})
-    daily = weather_data.get("daily", {})
+def fetch_historical_weather(latitude, longitude, start_date, end_date):
+    response = requests.get(
+        "https://archive-api.open-meteo.com/v1/archive",
+        params={
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": start_date,
+            "end_date": end_date,
+            "daily": ",".join([
+                "weather_code",
+                "temperature_2m_mean",
+                "temperature_2m_max",
+                "temperature_2m_min",
+                "apparent_temperature_mean",
+                "precipitation_sum",
+                "rain_sum",
+                "precipitation_hours",
+                "wind_speed_10m_max",
+            ]),
+            "timezone": "auto",
+        },
+        timeout=30,
+    )
 
-    temperature = current.get("temperature_2m")
-    wind_speed = current.get("wind_speed_10m")
-
-    if temperature is not None and temperature >= 40:
-        alerts.append("Extreme heat alert: Temperature is 40°C or above.")
-    elif temperature is not None and temperature >= 35:
-        alerts.append("High temperature alert: Avoid prolonged direct sunlight.")
-
-    if wind_speed is not None and wind_speed >= 50:
-        alerts.append("Strong wind alert: Outdoor activities may be affected.")
-
-    for i, p in enumerate(daily.get("precipitation_probability_max", [])):
-        if p is not None and p >= 80:
-            alerts.append(f"High rain probability on forecast day {i + 1}: {p}%.")
-
-    for i, p in enumerate(daily.get("precipitation_sum", [])):
-        if p is not None and p >= 30:
-            alerts.append(f"Heavy rainfall expected on forecast day {i + 1}: {p} mm.")
-
-    for i, u in enumerate(daily.get("uv_index_max", [])):
-        if u is not None and u >= 8:
-            alerts.append(f"Very high UV expected on forecast day {i + 1}: UV index {u}.")
-
-    return alerts or ["No major weather alerts detected."]
+    response.raise_for_status()
+    return response.json()
 
 
 def guess_suffix(uploaded_file):
