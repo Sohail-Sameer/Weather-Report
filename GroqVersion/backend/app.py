@@ -19,7 +19,6 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "https://ollama.com")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
 GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
@@ -28,8 +27,6 @@ if not OLLAMA_API_KEY:
     raise RuntimeError("OLLAMA_API_KEY is missing in backend/.env")
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY is missing in backend/.env")
-if not WEATHER_API_KEY:
-    raise RuntimeError("WEATHER_API_KEY is missing in environment")
 
 ollama_client = Client(host=OLLAMA_HOST, headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"})
 groq_client = Groq(api_key=GROQ_API_KEY)
