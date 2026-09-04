@@ -311,22 +311,28 @@ def api_weather():
         return jsonify({"error": str(error)}), 502
 
 
-@app.route("/api/report", methods=["POST"])
-def api_report():
-    body = request.get_json(silent=True) or {}
-    language = body.get("language", "English")
+@app.route("/api/history")
+def api_history():
+    try:
+        latitude = float(request.args["latitude"])
+        longitude = float(request.args["longitude"])
+        start_date = request.args["start_date"]
+        end_date = request.args.get("end_date", start_date)
+    except (KeyError, ValueError):
+        return jsonify({
+            "error": "valid latitude, longitude, start_date and end_date are required"
+        }), 400
 
     try:
-        response = ollama_client.chat(
-            model=OLLAMA_MODEL,
-            messages=[
-                {"role": "system", "content": REPORT_PROMPT.format(language=language)},
-                {"role": "user", "content": json.dumps(body, ensure_ascii=False)},
-            ],
+        historical_data = fetch_historical_weather(
+            latitude,
+            longitude,
+            start_date,
+            end_date,
         )
-        return jsonify({"report": response.message.content})
+        return jsonify({"weather": historical_data})
     except Exception as error:
-        return jsonify({"error": f"Report generation failed: {error}"}), 502
+        return jsonify({"error": str(error)}), 502
 
 
 if __name__ == "__main__":
