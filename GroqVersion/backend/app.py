@@ -45,7 +45,7 @@ CORS(app, resources={r"/api/*": {"origins": _origins}})
 LANG_CODE_TO_NAME = {"en": "English", "hi": "Hindi", "te": "Telugu"}
 LANG_NAME_TO_CODE = {"english": "en", "hindi": "hi", "telugu": "te"}
 
-ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference. User language may be English, Hindi or Telugu. If no location, location is null. forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
+ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference, start_date, end_date. User language may be English, Hindi or Telugu. If no location, location is null. For future forecasts, forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7, up to 16 days when requested. For historical requests, identify the exact date or date range when possible and return start_date and end_date in YYYY-MM-DD format. If the user asks about past, historical, yesterday, a previous date, or a year/month in the past, use historical mode through the dates. For current or future requests, start_date and end_date should be null. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
 
 REPORT_PROMPT = """You are WeatherGPT. Using the provided request, location, Open-Meteo weather data and alerts, answer accurately. Respond only in {language}. No markdown, no emojis, no invented facts. Use Celsius, km/h and mm. Be concise and practical."""
 
