@@ -473,22 +473,22 @@ function renderDetails(weather) {
     tiles = [
       {
         icon: humidityIcon,
-        value: meanTemp !== undefined ? `${Math.round(meanTemp)}°` : "—",
+        value: meanTemp != null ? `${Math.round(meanTemp)}°` : "—",
         label: "Avg Temp",
       },
       {
         icon: windIcon,
-        value: wind !== undefined ? `${Math.round(wind)} km/h` : "—",
+        value: wind != null ? `${Math.round(wind)} km/h` : "—",
         label: "Max Wind",
       },
       {
         icon: rainIcon,
-        value: precipitation !== undefined ? `${precipitation} mm` : "—",
+        value: precipitation != null ? `${precipitation} mm` : "—",
         label: "Rain",
       },
       {
         icon: uvIcon,
-        value: rain !== undefined ? `${rain} mm` : "—",
+        value: rain != null ? `${rain} mm` : "—",
         label: "Rain Total",
       },
     ];
