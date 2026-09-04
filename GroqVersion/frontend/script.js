@@ -536,6 +536,72 @@ function renderDetails(weather) {
     )
     .join("");
 }
+
+function renderForecast(weather) {
+  const daily = weather.daily || {};
+  const days = daily.time || [];
+
+  const isHistorical =
+    daily.temperature_2m_mean !== undefined &&
+    weather.current === undefined;
+
+  document.getElementById("forecast-scroll").innerHTML = days
+    .map((dateStr, i) => {
+      const hi = daily.temperature_2m_max?.[i];
+      const lo = daily.temperature_2m_min?.[i];
+      const category = conditionCategory(daily.weather_code?.[i], 1);
+
+      if (isHistorical) {
+        const date = new Date(dateStr + "T00:00:00");
+        const label = date.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        });
+
+        const rain = daily.precipitation_sum?.[i];
+
+        return `
+          <div class="forecast-card">
+            <div class="forecast-day">${label}</div>
+            ${weatherIconSVG(category)}
+            <div class="forecast-hi">
+              ${hi !== undefined ? Math.round(hi) + "°" : "—"}
+            </div>
+            <div class="forecast-lo">
+              ${lo !== undefined ? Math.round(lo) + "°" : "—"}
+            </div>
+            ${
+              rain !== undefined
+                ? `<div class="forecast-rain">${rain} mm</div>`
+                : ""
+            }
+          </div>`;
+      }
+
+      const label = formatDayLabel(dateStr, i);
+      const rain = daily.precipitation_probability_max?.[i];
+
+      return `
+        <div class="forecast-card">
+          <div class="forecast-day">${label}</div>
+          ${weatherIconSVG(category)}
+          <div class="forecast-hi">
+            ${hi !== undefined ? Math.round(hi) + "°" : "—"}
+          </div>
+          <div class="forecast-lo">
+            ${lo !== undefined ? Math.round(lo) + "°" : "—"}
+          </div>
+          ${
+            rain !== undefined
+              ? `<div class="forecast-rain">${rain}%</div>`
+              : ""
+          }
+        </div>`;
+    })
+    .join("");
+}
+
 function renderReport(report) {
   document.getElementById("report-text").textContent = report;
 }
