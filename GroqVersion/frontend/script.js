@@ -384,8 +384,8 @@ function renderHero(location, weather) {
     document.getElementById("hero-icon").innerHTML =
       weatherIconSVG(category);
 
-    document.getElementById("hero-temp").textContent =
-      mean !== undefined ? `${Math.round(mean)}°` : "—°";
+   document.getElementById("hero-temp").textContent =
+  mean != null ? `${Math.round(mean)}°` : "—°";
 
     document.getElementById("hero-condition").textContent =
       CONDITION_LABELS[category] || "Historical weather";
@@ -397,12 +397,12 @@ function renderHero(location, weather) {
       "Historical weather";
 
     document.getElementById("hero-feelslike").textContent =
-      daily.apparent_temperature_mean?.[0] !== undefined
+      daily.apparent_temperature_mean?.[0] != null
         ? `Feels like ${Math.round(daily.apparent_temperature_mean[0])}°`
         : "";
 
     document.getElementById("hero-hilo").textContent =
-      hi !== undefined && lo !== undefined
+      hi != null && lo != null
         ? `H:${Math.round(hi)}° L:${Math.round(lo)}°`
         : "";
 
