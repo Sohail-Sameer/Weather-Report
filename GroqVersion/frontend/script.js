@@ -288,17 +288,44 @@ async function runPipeline(userQuery, queryData) {
     const language = ["English", "Hindi", "Telugu"].includes(queryData.language)
       ? queryData.language
       : "English";
+
     const forecastDays = queryData.forecast_days || 3;
 
     setStatus(`Finding ${queryData.location}…`);
-    const location = await getJSON(`/api/geocode?location=${encodeURIComponent(queryData.location)}`);
-
-    setStatus("Getting weather data…");
-    const { weather, alerts } = await getJSON(
-      `/api/weather?latitude=${location.latitude}&longitude=${location.longitude}&forecast_days=${forecastDays}`
+    const location = await getJSON(
+      `/api/geocode?location=${encodeURIComponent(queryData.location)}`
     );
 
+    let weather;
+    let alerts = [];
+
+    // Historical weather request
+    if (queryData.start_date) {
+      setStatus("Getting historical weather data…");
+
+      const endDate = queryData.end_date || queryData.start_date;
+
+      const historyResponse = await getJSON(
+        `/api/history?latitude=${location.latitude}&longitude=${location.longitude}&start_date=${queryData.start_date}&end_date=${endDate}`
+      );
+
+      weather = historyResponse.weather;
+    }
+
+    // Current / future weather request
+    else {
+      setStatus("Getting weather data…");
+
+      const weatherResponse = await getJSON(
+        `/api/weather?latitude=${location.latitude}&longitude=${location.longitude}&forecast_days=${forecastDays}`
+      );
+
+      weather = weatherResponse.weather;
+      alerts = weatherResponse.alerts || [];
+    }
+
     setStatus("Writing your report…");
+
     const { report } = await postJSON("/api/report", {
       user_query: userQuery,
       location,
