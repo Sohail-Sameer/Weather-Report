@@ -566,13 +566,13 @@ function renderForecast(weather) {
             <div class="forecast-day">${label}</div>
             ${weatherIconSVG(category)}
             <div class="forecast-hi">
-              ${hi !== undefined ? Math.round(hi) + "°" : "—"}
+              ${hi != null ? Math.round(hi) + "°" : "—"}
             </div>
             <div class="forecast-lo">
-              ${lo !== undefined ? Math.round(lo) + "°" : "—"}
+              ${lo != null ? Math.round(lo) + "°" : "—"}
             </div>
             ${
-              rain !== undefined
+              rain != null
                 ? `<div class="forecast-rain">${rain} mm</div>`
                 : ""
             }
