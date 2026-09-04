@@ -364,6 +364,31 @@ def api_history():
     except Exception as error:
         return jsonify({"error": str(error)}), 502
 
+@app.route("/api/report", methods=["POST"])
+def api_report():
+    body = request.get_json(silent=True) or {}
+    language = body.get("language", "English")
+
+    try:
+        response = ollama_client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": REPORT_PROMPT.format(language=language),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(body, ensure_ascii=False),
+                },
+            ],
+        )
+
+        return jsonify({"report": response.message.content})
+
+    except Exception as error:
+        return jsonify({"error": f"Report generation failed: {error}"}), 502
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
