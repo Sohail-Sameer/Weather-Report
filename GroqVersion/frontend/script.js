@@ -368,17 +368,71 @@ function renderAlerts(alerts) {
 function renderHero(location, weather) {
   const current = weather.current || {};
   const daily = weather.daily || {};
-  const category = conditionCategory(current.weather_code, current.is_day);
+
+  const isHistorical =
+    !current.temperature_2m &&
+    daily.temperature_2m_mean !== undefined;
+
+  if (isHistorical) {
+    const mean = daily.temperature_2m_mean?.[0];
+    const hi = daily.temperature_2m_max?.[0];
+    const lo = daily.temperature_2m_min?.[0];
+
+    const category = conditionCategory(daily.weather_code?.[0], 1);
+    applyConditionTheme(category);
+
+    document.getElementById("hero-icon").innerHTML =
+      weatherIconSVG(category);
+
+    document.getElementById("hero-temp").textContent =
+      mean !== undefined ? `${Math.round(mean)}°` : "—°";
+
+    document.getElementById("hero-condition").textContent =
+      CONDITION_LABELS[category] || "Historical weather";
+
+    document.getElementById("hero-location").textContent =
+      [location.name, location.country].filter(Boolean).join(", ") || "—";
+
+    document.getElementById("hero-updated").textContent =
+      "Historical weather";
+
+    document.getElementById("hero-feelslike").textContent =
+      daily.apparent_temperature_mean?.[0] !== undefined
+        ? `Feels like ${Math.round(daily.apparent_temperature_mean[0])}°`
+        : "";
+
+    document.getElementById("hero-hilo").textContent =
+      hi !== undefined && lo !== undefined
+        ? `H:${Math.round(hi)}° L:${Math.round(lo)}°`
+        : "";
+
+    return;
+  }
+
+  const category = conditionCategory(
+    current.weather_code,
+    current.is_day
+  );
 
   applyConditionTheme(category);
 
-  document.getElementById("hero-icon").innerHTML = weatherIconSVG(category);
+  document.getElementById("hero-icon").innerHTML =
+    weatherIconSVG(category);
+
   document.getElementById("hero-temp").textContent =
-    current.temperature_2m !== undefined ? `${Math.round(current.temperature_2m)}°` : "—°";
-  document.getElementById("hero-condition").textContent = CONDITION_LABELS[category] || "—";
+    current.temperature_2m !== undefined
+      ? `${Math.round(current.temperature_2m)}°`
+      : "—°";
+
+  document.getElementById("hero-condition").textContent =
+    CONDITION_LABELS[category] || "—";
+
   document.getElementById("hero-location").textContent =
     [location.name, location.country].filter(Boolean).join(", ") || "—";
-  document.getElementById("hero-updated").textContent = "Updated just now";
+
+  document.getElementById("hero-updated").textContent =
+    "Updated just now";
+
   document.getElementById("hero-feelslike").textContent =
     current.apparent_temperature !== undefined
       ? `Feels like ${Math.round(current.apparent_temperature)}°`
@@ -386,10 +440,12 @@ function renderHero(location, weather) {
 
   const hi = daily.temperature_2m_max?.[0];
   const lo = daily.temperature_2m_min?.[0];
-  document.getElementById("hero-hilo").textContent =
-    hi !== undefined && lo !== undefined ? `H:${Math.round(hi)}° L:${Math.round(lo)}°` : "";
-}
 
+  document.getElementById("hero-hilo").textContent =
+    hi !== undefined && lo !== undefined
+      ? `H:${Math.round(hi)}° L:${Math.round(lo)}°`
+      : "";
+}
 function renderDetails(weather) {
   const current = weather.current || {};
   const daily = weather.daily || {};
