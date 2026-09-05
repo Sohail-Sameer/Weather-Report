@@ -101,23 +101,42 @@ def geocode(location_name):
 # 5,000/hour, 10,000/day), and Render's free web services share
 # outbound IPs across many unrelated apps — so 429s can happen
 # even on your very first request if that shared IP's quota was
-# already used up by someone else. A short in-memory cache plus
-# a retry with backoff smooths over most of this without needing
-# a paid Open-Meteo plan.
+# already used up by someone else.
+#
+# Strategy, in order, on every request:
+#   1. Serve from the shared in-memory cache if we already have
+#      recent data for this location — regardless of which
+#      provider originally fetched it, so one user's successful
+#      call saves every other user asking about the same place.
+#   2. Try Open-Meteo (with retry/backoff on 429).
+#   3. If Open-Meteo is still failing, fall back to WeatherAPI.com
+#      for just this request (requires WEATHERAPI_KEY). Its
+#      response is normalized into Open-Meteo's exact shape, so
+#      nothing downstream (alerts, frontend rendering) needs to
+#      know or care which provider actually answered.
+#   4. The very next request tries Open-Meteo again from scratch —
+#      there's no "switched over" state to recover from, so it
+#      self-heals the moment Open-Meteo's shared IP clears up.
 # ------------------------------------------------------------
 
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")  # optional; fallback is skipped if unset
+
 _WEATHER_CACHE = {}
-_WEATHER_CACHE_TTL_SECONDS = 600  # 10 minutes
+_WEATHER_CACHE_TTL_SECONDS = 900  # 15 minutes
 
 
-def fetch_weather(latitude, longitude, forecast_days):
-    forecast_days = max(1, min(int(forecast_days), 7))
-    cache_key = (round(float(latitude), 2), round(float(longitude), 2), forecast_days)
-
+def _cache_get(cache_key):
     cached = _WEATHER_CACHE.get(cache_key)
     if cached and (time.time() - cached[0]) < _WEATHER_CACHE_TTL_SECONDS:
         return cached[1]
+    return None
 
+
+def _cache_set(cache_key, data):
+    _WEATHER_CACHE[cache_key] = (time.time(), data)
+
+
+def _fetch_open_meteo(latitude, longitude, forecast_days):
     params = {
         "latitude": latitude,
         "longitude": longitude,
@@ -133,21 +152,117 @@ def fetch_weather(latitude, longitude, forecast_days):
 
     max_attempts = 3
     backoff_seconds = 1.5
+    last_error = None
 
     for attempt in range(1, max_attempts + 1):
         response = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15)
 
         if response.status_code == 429:
-            if attempt == max_attempts:
-                response.raise_for_status()
-            retry_after = response.headers.get("Retry-After")
-            wait = float(retry_after) if retry_after else backoff_seconds * attempt
-            time.sleep(wait)
-            continue
+            last_error = requests.HTTPError(response=response)
+            if attempt < max_attempts:
+                retry_after = response.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else backoff_seconds * attempt
+                time.sleep(wait)
+                continue
+            break
 
         response.raise_for_status()
-        data = response.json()
-        _WEATHER_CACHE[cache_key] = (time.time(), data)
+        return response.json()
+
+    raise last_error
+
+
+# Loose keyword mapping from WeatherAPI's free-text condition to a
+# representative WMO code, so the existing icon/category logic in
+# script.js (built around Open-Meteo's WMO codes) keeps working
+# unchanged no matter which provider answered.
+def _condition_text_to_wmo(text):
+    t = (text or "").lower()
+    if "thunder" in t:
+        return 95
+    if "snow" in t or "sleet" in t or "ice pellet" in t or "blizzard" in t:
+        return 73
+    if "freezing" in t and "rain" in t:
+        return 66
+    if "drizzle" in t:
+        return 51
+    if "rain" in t or "shower" in t:
+        return 63
+    if "mist" in t or "fog" in t:
+        return 45
+    if "overcast" in t:
+        return 3
+    if "cloud" in t:
+        return 2 if "partly" in t else 3
+    if "clear" in t or "sunny" in t:
+        return 0
+    return 2
+
+
+def _fetch_weatherapi(latitude, longitude, forecast_days):
+    if not WEATHERAPI_KEY:
+        raise RuntimeError("No WEATHERAPI_KEY configured, can't fall back")
+
+    # WeatherAPI's free plan caps forecasts at 3 days.
+    days = max(1, min(forecast_days, 3))
+
+    response = requests.get(
+        "https://api.weatherapi.com/v1/forecast.json",
+        params={"key": WEATHERAPI_KEY, "q": f"{latitude},{longitude}", "days": days, "aqi": "no", "alerts": "no"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    raw = response.json()
+
+    current = raw.get("current", {})
+    forecast_days_list = raw.get("forecast", {}).get("forecastday", [])
+
+    normalized = {
+        "current": {
+            "temperature_2m": current.get("temp_c"),
+            "relative_humidity_2m": current.get("humidity"),
+            "apparent_temperature": current.get("feelslike_c"),
+            "precipitation": current.get("precip_mm"),
+            "rain": current.get("precip_mm"),
+            "weather_code": _condition_text_to_wmo(current.get("condition", {}).get("text")),
+            "wind_speed_10m": current.get("wind_kph"),
+            "is_day": current.get("is_day", 1),
+        },
+        "daily": {
+            "time": [d.get("date") for d in forecast_days_list],
+            "weather_code": [_condition_text_to_wmo(d.get("day", {}).get("condition", {}).get("text")) for d in forecast_days_list],
+            "temperature_2m_max": [d.get("day", {}).get("maxtemp_c") for d in forecast_days_list],
+            "temperature_2m_min": [d.get("day", {}).get("mintemp_c") for d in forecast_days_list],
+            "precipitation_sum": [d.get("day", {}).get("totalprecip_mm") for d in forecast_days_list],
+            "precipitation_probability_max": [d.get("day", {}).get("daily_chance_of_rain") for d in forecast_days_list],
+            "uv_index_max": [d.get("day", {}).get("uv") for d in forecast_days_list],
+            "wind_speed_10m_max": [d.get("day", {}).get("maxwind_kph") for d in forecast_days_list],
+        },
+    }
+    return normalized
+
+
+def fetch_weather(latitude, longitude, forecast_days):
+    forecast_days = max(1, min(int(forecast_days), 7))
+    cache_key = (round(float(latitude), 2), round(float(longitude), 2), forecast_days)
+
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        data = _fetch_open_meteo(latitude, longitude, forecast_days)
+        print(f"[weather] served by open-meteo for {cache_key}")
+        _cache_set(cache_key, data)
+        return data
+    except requests.HTTPError as open_meteo_error:
+        is_429 = open_meteo_error.response is not None and open_meteo_error.response.status_code == 429
+        if not is_429 or not WEATHERAPI_KEY:
+            raise
+
+        print(f"[weather] open-meteo 429, falling back to weatherapi for {cache_key}")
+        data = _fetch_weatherapi(latitude, longitude, forecast_days)
+        _cache_set(cache_key, data)
         return data
 
 
@@ -323,11 +438,20 @@ def api_weather():
         return jsonify({"weather": weather_data, "alerts": build_alerts(weather_data)})
     except requests.HTTPError as error:
         if error.response is not None and error.response.status_code == 429:
-            return jsonify({
-                "error": "Open-Meteo is rate-limiting this server's IP right now "
-                         "(common on shared free hosting). Please try again in a "
-                         "minute or two."
-            }), 503
+            # Only reachable if the WeatherAPI fallback also failed (or
+            # WEATHERAPI_KEY isn't set) — Open-Meteo alone being rate
+            # limited no longer surfaces to the user.
+            message = (
+                "Open-Meteo is rate-limiting this server's IP right now, and "
+                "the backup weather source also failed. Please try again in "
+                "a minute or two."
+                if WEATHERAPI_KEY else
+                "Open-Meteo is rate-limiting this server's IP right now "
+                "(common on shared free hosting). Add a WEATHERAPI_KEY "
+                "environment variable to enable automatic fallback, or try "
+                "again in a minute or two."
+            )
+            return jsonify({"error": message}), 503
         return jsonify({"error": str(error)}), 502
     except Exception as error:
         return jsonify({"error": str(error)}), 502
