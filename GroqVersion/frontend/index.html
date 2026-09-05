@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>WeatherGPT</title>
+
+<!-- PWA: installable on Android + iOS home screens -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1b3b6f" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="WeatherGPT" />
+<meta name="mobile-web-app-capable" content="yes" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@200;300;500;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Telugu:wght@400;600&display=swap" rel="stylesheet">
@@ -79,7 +89,7 @@
     <div id="details-grid" class="details-grid"></div>
 
     <div class="forecast-wrap">
-      <h3 class="section-label">7-Day Forecast</h3<h3 id="forecast-title" class="section-label">7-Day Forecast</h3>
+      <h3 class="section-label">7-Day Forecast</h3>
       <div id="forecast-scroll" class="forecast-scroll"></div>
     </div>
 
