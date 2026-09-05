@@ -1,4 +1,4 @@
-
+const CACHE_NAME = "weathergpt-shell-v1";
 
 const SHELL_FILES = [
   "/",
