@@ -288,17 +288,44 @@ async function runPipeline(userQuery, queryData) {
     const language = ["English", "Hindi", "Telugu"].includes(queryData.language)
       ? queryData.language
       : "English";
+
     const forecastDays = queryData.forecast_days || 3;
 
     setStatus(`Finding ${queryData.location}…`);
-    const location = await getJSON(`/api/geocode?location=${encodeURIComponent(queryData.location)}`);
-
-    setStatus("Getting weather data…");
-    const { weather, alerts } = await getJSON(
-      `/api/weather?latitude=${location.latitude}&longitude=${location.longitude}&forecast_days=${forecastDays}`
+    const location = await getJSON(
+      `/api/geocode?location=${encodeURIComponent(queryData.location)}`
     );
 
+    let weather;
+    let alerts = [];
+
+    // Historical weather request
+    if (queryData.start_date) {
+      setStatus("Getting historical weather data…");
+
+      const endDate = queryData.end_date || queryData.start_date;
+
+      const historyResponse = await getJSON(
+        `/api/history?latitude=${location.latitude}&longitude=${location.longitude}&start_date=${queryData.start_date}&end_date=${endDate}`
+      );
+
+      weather = historyResponse.weather;
+    }
+
+    // Current / future weather request
+    else {
+      setStatus("Getting weather data…");
+
+      const weatherResponse = await getJSON(
+        `/api/weather?latitude=${location.latitude}&longitude=${location.longitude}&forecast_days=${forecastDays}`
+      );
+
+      weather = weatherResponse.weather;
+      alerts = weatherResponse.alerts || [];
+    }
+
     setStatus("Writing your report…");
+
     const { report } = await postJSON("/api/report", {
       user_query: userQuery,
       location,
@@ -341,17 +368,71 @@ function renderAlerts(alerts) {
 function renderHero(location, weather) {
   const current = weather.current || {};
   const daily = weather.daily || {};
-  const category = conditionCategory(current.weather_code, current.is_day);
+
+  const isHistorical =
+    !current.temperature_2m &&
+    daily.temperature_2m_mean !== undefined;
+
+  if (isHistorical) {
+    const mean = daily.temperature_2m_mean?.[0];
+    const hi = daily.temperature_2m_max?.[0];
+    const lo = daily.temperature_2m_min?.[0];
+
+    const category = conditionCategory(daily.weather_code?.[0], 1);
+    applyConditionTheme(category);
+
+    document.getElementById("hero-icon").innerHTML =
+      weatherIconSVG(category);
+
+   document.getElementById("hero-temp").textContent =
+  mean != null ? `${Math.round(mean)}°` : "—°";
+
+    document.getElementById("hero-condition").textContent =
+      CONDITION_LABELS[category] || "Historical weather";
+
+    document.getElementById("hero-location").textContent =
+      [location.name, location.country].filter(Boolean).join(", ") || "—";
+
+    document.getElementById("hero-updated").textContent =
+      "Historical weather";
+
+    document.getElementById("hero-feelslike").textContent =
+      daily.apparent_temperature_mean?.[0] != null
+        ? `Feels like ${Math.round(daily.apparent_temperature_mean[0])}°`
+        : "";
+
+    document.getElementById("hero-hilo").textContent =
+      hi != null && lo != null
+        ? `H:${Math.round(hi)}° L:${Math.round(lo)}°`
+        : "";
+
+    return;
+  }
+
+  const category = conditionCategory(
+    current.weather_code,
+    current.is_day
+  );
 
   applyConditionTheme(category);
 
-  document.getElementById("hero-icon").innerHTML = weatherIconSVG(category);
+  document.getElementById("hero-icon").innerHTML =
+    weatherIconSVG(category);
+
   document.getElementById("hero-temp").textContent =
-    current.temperature_2m !== undefined ? `${Math.round(current.temperature_2m)}°` : "—°";
-  document.getElementById("hero-condition").textContent = CONDITION_LABELS[category] || "—";
+    current.temperature_2m !== undefined
+      ? `${Math.round(current.temperature_2m)}°`
+      : "—°";
+
+  document.getElementById("hero-condition").textContent =
+    CONDITION_LABELS[category] || "—";
+
   document.getElementById("hero-location").textContent =
     [location.name, location.country].filter(Boolean).join(", ") || "—";
-  document.getElementById("hero-updated").textContent = "Updated just now";
+
+  document.getElementById("hero-updated").textContent =
+    "Updated just now";
+
   document.getElementById("hero-feelslike").textContent =
     current.apparent_temperature !== undefined
       ? `Feels like ${Math.round(current.apparent_temperature)}°`
@@ -359,29 +440,99 @@ function renderHero(location, weather) {
 
   const hi = daily.temperature_2m_max?.[0];
   const lo = daily.temperature_2m_min?.[0];
-  document.getElementById("hero-hilo").textContent =
-    hi !== undefined && lo !== undefined ? `H:${Math.round(hi)}° L:${Math.round(lo)}°` : "";
-}
 
+  document.getElementById("hero-hilo").textContent =
+    hi !== undefined && lo !== undefined
+      ? `H:${Math.round(hi)}° L:${Math.round(lo)}°`
+      : "";
+}
 function renderDetails(weather) {
   const current = weather.current || {};
   const daily = weather.daily || {};
 
+  const isHistorical =
+    !current.temperature_2m &&
+    daily.temperature_2m_mean !== undefined;
+
   const humidityIcon = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg>`;
+
   const windIcon = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 8h11a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 13h15a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 18h9a2 2 0 1 1-2 2"/></svg>`;
+
   const uvIcon = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`;
+
   const rainIcon = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 16a4 4 0 0 1 .6-7.96A5 5 0 0 1 17 9.2a3.2 3.2 0 0 1-.6 6.3"/><path d="M9 19v2M13 19v2"/></svg>`;
 
-  const tiles = [
-    { icon: humidityIcon, value: current.relative_humidity_2m !== undefined ? `${current.relative_humidity_2m}%` : "—", label: "Humidity" },
-    { icon: windIcon, value: current.wind_speed_10m !== undefined ? `${Math.round(current.wind_speed_10m)} km/h` : "—", label: "Wind" },
-    { icon: uvIcon, value: daily.uv_index_max?.[0] !== undefined ? `${Math.round(daily.uv_index_max[0])}` : "—", label: "UV Index" },
-    { icon: rainIcon, value: daily.precipitation_probability_max?.[0] !== undefined ? `${daily.precipitation_probability_max[0]}%` : "—", label: "Rain" },
-  ];
+  let tiles;
+
+  if (isHistorical) {
+    const meanTemp = daily.temperature_2m_mean?.[0];
+    const rain = daily.rain_sum?.[0];
+    const precipitation = daily.precipitation_sum?.[0];
+    const wind = daily.wind_speed_10m_max?.[0];
+
+    tiles = [
+      {
+        icon: humidityIcon,
+        value: meanTemp != null ? `${Math.round(meanTemp)}°` : "—",
+        label: "Avg Temp",
+      },
+      {
+        icon: windIcon,
+        value: wind != null ? `${Math.round(wind)} km/h` : "—",
+        label: "Max Wind",
+      },
+      {
+        icon: rainIcon,
+        value: precipitation != null ? `${precipitation} mm` : "—",
+        label: "Rain",
+      },
+      {
+        icon: uvIcon,
+        value: rain != null ? `${rain} mm` : "—",
+        label: "Rain Total",
+      },
+    ];
+  } else {
+    tiles = [
+      {
+        icon: humidityIcon,
+        value:
+          current.relative_humidity_2m !== undefined
+            ? `${current.relative_humidity_2m}%`
+            : "—",
+        label: "Humidity",
+      },
+      {
+        icon: windIcon,
+        value:
+          current.wind_speed_10m !== undefined
+            ? `${Math.round(current.wind_speed_10m)} km/h`
+            : "—",
+        label: "Wind",
+      },
+      {
+        icon: uvIcon,
+        value:
+          daily.uv_index_max?.[0] !== undefined
+            ? `${Math.round(daily.uv_index_max[0])}`
+            : "—",
+        label: "UV Index",
+      },
+      {
+        icon: rainIcon,
+        value:
+          daily.precipitation_probability_max?.[0] !== undefined
+            ? `${daily.precipitation_probability_max[0]}%`
+            : "—",
+        label: "Rain",
+      },
+    ];
+  }
 
   document.getElementById("details-grid").innerHTML = tiles
     .map(
-      (t) => `<div class="detail-tile">${t.icon}<div class="detail-value">${t.value}</div><div class="detail-label">${t.label}</div></div>`
+      (t) =>
+        `<div class="detail-tile">${t.icon}<div class="detail-value">${t.value}</div><div class="detail-label">${t.label}</div></div>`
     )
     .join("");
 }
@@ -390,22 +541,69 @@ function renderForecast(weather) {
   const daily = weather.daily || {};
   const days = daily.time || [];
 
+  const isHistorical =
+    daily.temperature_2m_mean !== undefined &&
+    weather.current === undefined;
+   const forecastTitle = document.getElementById("forecast-title");
+
+if (forecastTitle) {
+  forecastTitle.textContent = isHistorical
+    ? "Historical Weather"
+    : "7-Day Forecast";
+}
+
   document.getElementById("forecast-scroll").innerHTML = days
     .map((dateStr, i) => {
-      const label = formatDayLabel(dateStr, i);
       const hi = daily.temperature_2m_max?.[i];
       const lo = daily.temperature_2m_min?.[i];
-      const rain = daily.precipitation_probability_max?.[i];
-      // Daily forecast has no is_day field; assume daytime icon.
       const category = conditionCategory(daily.weather_code?.[i], 1);
+
+      if (isHistorical) {
+        const date = new Date(dateStr + "T00:00:00");
+        const label = date.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        });
+
+        const rain = daily.precipitation_sum?.[i];
+
+        return `
+          <div class="forecast-card">
+            <div class="forecast-day">${label}</div>
+            ${weatherIconSVG(category)}
+            <div class="forecast-hi">
+              ${hi != null ? Math.round(hi) + "°" : "—"}
+            </div>
+            <div class="forecast-lo">
+              ${lo != null ? Math.round(lo) + "°" : "—"}
+            </div>
+            ${
+              rain != null
+                ? `<div class="forecast-rain">${rain} mm</div>`
+                : ""
+            }
+          </div>`;
+      }
+
+      const label = formatDayLabel(dateStr, i);
+      const rain = daily.precipitation_probability_max?.[i];
 
       return `
         <div class="forecast-card">
           <div class="forecast-day">${label}</div>
           ${weatherIconSVG(category)}
-          <div class="forecast-hi">${hi !== undefined ? Math.round(hi) + "°" : "—"}</div>
-          <div class="forecast-lo">${lo !== undefined ? Math.round(lo) + "°" : "—"}</div>
-          ${rain !== undefined ? `<div class="forecast-rain">${rain}%</div>` : ""}
+          <div class="forecast-hi">
+            ${hi !== null ? Math.round(hi) + "°" : "—"}
+          </div>
+          <div class="forecast-lo">
+            ${lo !== null ? Math.round(lo) + "°" : "—"}
+          </div>
+          ${
+            rain != null
+              ? `<div class="forecast-rain">${rain}%</div>`
+              : ""
+          }
         </div>`;
     })
     .join("");

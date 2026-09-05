@@ -45,7 +45,7 @@ CORS(app, resources={r"/api/*": {"origins": _origins}})
 LANG_CODE_TO_NAME = {"en": "English", "hi": "Hindi", "te": "Telugu"}
 LANG_NAME_TO_CODE = {"english": "en", "hindi": "hi", "telugu": "te"}
 
-ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference. User language may be English, Hindi or Telugu. If no location, location is null. forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
+ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference, start_date, end_date. User language may be English, Hindi or Telugu. If no location, location is null. For future forecasts, forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7, up to 16 days when requested. For historical requests, identify the exact date or date range when possible and return start_date and end_date in YYYY-MM-DD format. If the user asks about past, historical, yesterday, a previous date, or a year/month in the past, use historical mode through the dates. For current or future requests, start_date and end_date should be null. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
 
 REPORT_PROMPT = """You are WeatherGPT. Using the provided request, location, Open-Meteo weather data and alerts, answer accurately. Respond only in {language}. No markdown, no emojis, no invented facts. Use Celsius, km/h and mm. Be concise and practical."""
 
@@ -76,16 +76,25 @@ def analyze(user_query):
 def geocode(location_name):
     response = requests.get(
         "https://geocoding-api.open-meteo.com/v1/search",
-        params={"name": location_name, "count": 1, "language": "en", "format": "json"},
+        params={
+            "name": location_name,
+            "count": 1,
+            "language": "en",
+            "format": "json",
+        },
         timeout=15,
     )
+
     response.raise_for_status()
     data = response.json()
 
-    if not data.get("results"):
+    results = data.get("results", [])
+
+    if not results:
         return None
 
-    place = data["results"][0]
+    place = results[0]
+
     return {
         "name": place.get("name"),
         "country": place.get("country"),
@@ -96,25 +105,67 @@ def geocode(location_name):
 
 
 def fetch_weather(latitude, longitude, forecast_days):
+    days = max(1, min(int(forecast_days), 16))
+
     response = requests.get(
         "https://api.open-meteo.com/v1/forecast",
         params={
             "latitude": latitude,
             "longitude": longitude,
-            # is_day drives which icon (sun vs moon) the frontend shows.
-            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
-                       "precipitation,rain,weather_code,wind_speed_10m,is_day",
-            "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                     "precipitation_sum,precipitation_probability_max,"
-                     "uv_index_max,wind_speed_10m_max",
-            "forecast_days": max(1, min(int(forecast_days), 7)),
+            "current": ",".join([
+                "temperature_2m",
+                "relative_humidity_2m",
+                "apparent_temperature",
+                "precipitation",
+                "rain",
+                "weather_code",
+                "wind_speed_10m",
+                "is_day",
+            ]),
+            "daily": ",".join([
+                "weather_code",
+                "temperature_2m_max",
+                "temperature_2m_min",
+                "precipitation_sum",
+                "precipitation_probability_max",
+                "uv_index_max",
+                "wind_speed_10m_max",
+            ]),
+            "forecast_days": days,
             "timezone": "auto",
         },
         timeout=15,
     )
+
     response.raise_for_status()
     return response.json()
 
+def fetch_historical_weather(latitude, longitude, start_date, end_date):
+    response = requests.get(
+        "https://archive-api.open-meteo.com/v1/archive",
+        params={
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": start_date,
+            "end_date": end_date,
+            "daily": ",".join([
+                "weather_code",
+                "temperature_2m_mean",
+                "temperature_2m_max",
+                "temperature_2m_min",
+                "apparent_temperature_mean",
+                "precipitation_sum",
+                "rain_sum",
+                "precipitation_hours",
+                "wind_speed_10m_max",
+            ]),
+            "timezone": "auto",
+        },
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    return response.json()
 
 def build_alerts(weather_data):
     alerts = []
@@ -290,6 +341,29 @@ def api_weather():
         return jsonify({"error": str(error)}), 502
 
 
+@app.route("/api/history")
+def api_history():
+    try:
+        latitude = float(request.args["latitude"])
+        longitude = float(request.args["longitude"])
+        start_date = request.args["start_date"]
+        end_date = request.args.get("end_date", start_date)
+    except (KeyError, ValueError):
+        return jsonify({
+            "error": "valid latitude, longitude, start_date and end_date are required"
+        }), 400
+
+    try:
+        historical_data = fetch_historical_weather(
+            latitude,
+            longitude,
+            start_date,
+            end_date,
+        )
+        return jsonify({"weather": historical_data})
+    except Exception as error:
+        return jsonify({"error": str(error)}), 502
+
 @app.route("/api/report", methods=["POST"])
 def api_report():
     body = request.get_json(silent=True) or {}
@@ -299,11 +373,19 @@ def api_report():
         response = ollama_client.chat(
             model=OLLAMA_MODEL,
             messages=[
-                {"role": "system", "content": REPORT_PROMPT.format(language=language)},
-                {"role": "user", "content": json.dumps(body, ensure_ascii=False)},
+                {
+                    "role": "system",
+                    "content": REPORT_PROMPT.format(language=language),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(body, ensure_ascii=False),
+                },
             ],
         )
+
         return jsonify({"report": response.message.content})
+
     except Exception as error:
         return jsonify({"error": f"Report generation failed: {error}"}), 502
 
