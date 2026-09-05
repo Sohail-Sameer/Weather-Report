@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import time
 from datetime import datetime
 
 import requests
@@ -45,7 +46,7 @@ CORS(app, resources={r"/api/*": {"origins": _origins}})
 LANG_CODE_TO_NAME = {"en": "English", "hi": "Hindi", "te": "Telugu"}
 LANG_NAME_TO_CODE = {"english": "en", "hindi": "hi", "telugu": "te"}
 
-ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference, start_date, end_date. User language may be English, Hindi or Telugu. If no location, location is null. For future forecasts, forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7, up to 16 days when requested. For historical requests, identify the exact date or date range when possible and return start_date and end_date in YYYY-MM-DD format. If the user asks about past, historical, yesterday, a previous date, or a year/month in the past, use historical mode through the dates. For current or future requests, start_date and end_date should be null. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
+ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference. User language may be English, Hindi or Telugu. If no location, location is null. forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
 
 REPORT_PROMPT = """You are WeatherGPT. Using the provided request, location, Open-Meteo weather data and alerts, answer accurately. Respond only in {language}. No markdown, no emojis, no invented facts. Use Celsius, km/h and mm. Be concise and practical."""
 
@@ -76,25 +77,16 @@ def analyze(user_query):
 def geocode(location_name):
     response = requests.get(
         "https://geocoding-api.open-meteo.com/v1/search",
-        params={
-            "name": location_name,
-            "count": 1,
-            "language": "en",
-            "format": "json",
-        },
+        params={"name": location_name, "count": 1, "language": "en", "format": "json"},
         timeout=15,
     )
-
     response.raise_for_status()
     data = response.json()
 
-    results = data.get("results", [])
-
-    if not results:
+    if not data.get("results"):
         return None
 
-    place = results[0]
-
+    place = data["results"][0]
     return {
         "name": place.get("name"),
         "country": place.get("country"),
@@ -104,68 +96,60 @@ def geocode(location_name):
     }
 
 
+# ------------------------------------------------------------
+# Open-Meteo's free tier rate-limits by IP address (600/min,
+# 5,000/hour, 10,000/day), and Render's free web services share
+# outbound IPs across many unrelated apps — so 429s can happen
+# even on your very first request if that shared IP's quota was
+# already used up by someone else. A short in-memory cache plus
+# a retry with backoff smooths over most of this without needing
+# a paid Open-Meteo plan.
+# ------------------------------------------------------------
+
+_WEATHER_CACHE = {}
+_WEATHER_CACHE_TTL_SECONDS = 600  # 10 minutes
+
+
 def fetch_weather(latitude, longitude, forecast_days):
-    days = max(1, min(int(forecast_days), 16))
+    forecast_days = max(1, min(int(forecast_days), 7))
+    cache_key = (round(float(latitude), 2), round(float(longitude), 2), forecast_days)
 
-    response = requests.get(
-        "https://api.open-meteo.com/v1/forecast",
-        params={
-            "latitude": latitude,
-            "longitude": longitude,
-            "current": ",".join([
-                "temperature_2m",
-                "relative_humidity_2m",
-                "apparent_temperature",
-                "precipitation",
-                "rain",
-                "weather_code",
-                "wind_speed_10m",
-                "is_day",
-            ]),
-            "daily": ",".join([
-                "weather_code",
-                "temperature_2m_max",
-                "temperature_2m_min",
-                "precipitation_sum",
-                "precipitation_probability_max",
-                "uv_index_max",
-                "wind_speed_10m_max",
-            ]),
-            "forecast_days": days,
-            "timezone": "auto",
-        },
-        timeout=15,
-    )
+    cached = _WEATHER_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _WEATHER_CACHE_TTL_SECONDS:
+        return cached[1]
 
-    response.raise_for_status()
-    return response.json()
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        # is_day drives which icon (sun vs moon) the frontend shows.
+        "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
+                   "precipitation,rain,weather_code,wind_speed_10m,is_day",
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
+                 "precipitation_sum,precipitation_probability_max,"
+                 "uv_index_max,wind_speed_10m_max",
+        "forecast_days": forecast_days,
+        "timezone": "auto",
+    }
 
-def fetch_historical_weather(latitude, longitude, start_date, end_date):
-    response = requests.get(
-        "https://archive-api.open-meteo.com/v1/archive",
-        params={
-            "latitude": latitude,
-            "longitude": longitude,
-            "start_date": start_date,
-            "end_date": end_date,
-            "daily": ",".join([
-                "weather_code",
-                "temperature_2m_mean",
-                "temperature_2m_max",
-                "temperature_2m_min",
-                "apparent_temperature_mean",
-                "precipitation_sum",
-                "rain_sum",
-                "precipitation_hours",
-                "wind_speed_10m_max",
-            ]),
-            "timezone": "auto",
-        },
-        timeout=30,
-    )
+    max_attempts = 3
+    backoff_seconds = 1.5
 
-    response.raise_for_status()
-    return response.json()
+    for attempt in range(1, max_attempts + 1):
+        response = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15)
+
+        if response.status_code == 429:
+            if attempt == max_attempts:
+                response.raise_for_status()
+            retry_after = response.headers.get("Retry-After")
+            wait = float(retry_after) if retry_after else backoff_seconds * attempt
+            time.sleep(wait)
+            continue
+
+        response.raise_for_status()
+        data = response.json()
+        _WEATHER_CACHE[cache_key] = (time.time(), data)
+        return data
+
 
 def build_alerts(weather_data):
     alerts = []
@@ -337,32 +321,17 @@ def api_weather():
     try:
         weather_data = fetch_weather(latitude, longitude, forecast_days)
         return jsonify({"weather": weather_data, "alerts": build_alerts(weather_data)})
+    except requests.HTTPError as error:
+        if error.response is not None and error.response.status_code == 429:
+            return jsonify({
+                "error": "Open-Meteo is rate-limiting this server's IP right now "
+                         "(common on shared free hosting). Please try again in a "
+                         "minute or two."
+            }), 503
+        return jsonify({"error": str(error)}), 502
     except Exception as error:
         return jsonify({"error": str(error)}), 502
 
-
-@app.route("/api/history")
-def api_history():
-    try:
-        latitude = float(request.args["latitude"])
-        longitude = float(request.args["longitude"])
-        start_date = request.args["start_date"]
-        end_date = request.args.get("end_date", start_date)
-    except (KeyError, ValueError):
-        return jsonify({
-            "error": "valid latitude, longitude, start_date and end_date are required"
-        }), 400
-
-    try:
-        historical_data = fetch_historical_weather(
-            latitude,
-            longitude,
-            start_date,
-            end_date,
-        )
-        return jsonify({"weather": historical_data})
-    except Exception as error:
-        return jsonify({"error": str(error)}), 502
 
 @app.route("/api/report", methods=["POST"])
 def api_report():
@@ -373,19 +342,11 @@ def api_report():
         response = ollama_client.chat(
             model=OLLAMA_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": REPORT_PROMPT.format(language=language),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(body, ensure_ascii=False),
-                },
+                {"role": "system", "content": REPORT_PROMPT.format(language=language)},
+                {"role": "user", "content": json.dumps(body, ensure_ascii=False)},
             ],
         )
-
         return jsonify({"report": response.message.content})
-
     except Exception as error:
         return jsonify({"error": f"Report generation failed: {error}"}), 502
 
