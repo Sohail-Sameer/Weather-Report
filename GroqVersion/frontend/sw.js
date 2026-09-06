@@ -1,10 +1,11 @@
-const CACHE_NAME = "weathergpt-shell-v1";
+const CACHE_NAME = "weathergpt-shell-v2";
 
 const SHELL_FILES = [
   "/",
   "/index.html",
   "/style.css",
   "/script.js",
+  "/cloud3d.js",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
