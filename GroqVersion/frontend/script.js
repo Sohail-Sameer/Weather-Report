@@ -444,8 +444,64 @@ function renderForecast(weather) {
     .join("");
 }
 
+/*
+ * The AI report often comes back with light markdown (**bold** section
+ * labels, "- " bullet lists) despite the prompt asking it not to —
+ * models tend to reach for it on structured content like a 7-day
+ * breakdown. Rather than fight that, render it properly: escape the raw
+ * text first (so nothing in the report can inject real HTML), then turn
+ * that markdown into actual headings/bold/lists so labels stand out
+ * instead of showing literal asterisks.
+ */
+function renderMarkdownLite(rawText) {
+  const lines = escapeHTML(rawText).split("\n");
+  const htmlParts = [];
+  let listOpen = false;
+
+  const closeList = () => {
+    if (listOpen) {
+      htmlParts.push("</ul>");
+      listOpen = false;
+    }
+  };
+
+  const inlineBold = (text) => text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      closeList();
+      continue;
+    }
+
+    const headingMatch = line.match(/^\*\*(.+)\*\*$/);
+    if (headingMatch) {
+      closeList();
+      htmlParts.push(`<h4 class="report-heading">${headingMatch[1]}</h4>`);
+      continue;
+    }
+
+    const bulletMatch = line.match(/^[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      if (!listOpen) {
+        htmlParts.push("<ul>");
+        listOpen = true;
+      }
+      htmlParts.push(`<li>${inlineBold(bulletMatch[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    htmlParts.push(`<p>${inlineBold(line)}</p>`);
+  }
+
+  closeList();
+  return htmlParts.join("");
+}
+
 function renderReport(report) {
-  document.getElementById("report-text").textContent = report;
+  document.getElementById("report-text").innerHTML = renderMarkdownLite(report);
 }
 
 function formatDayLabel(dateStr, index) {
