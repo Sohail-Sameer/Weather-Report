@@ -238,6 +238,7 @@ async function handleRecordingStop() {
     if (!response.ok) throw new Error(data.error || "Transcription failed");
 
     queryInput.value = data.transcript;
+    autosizeQueryInput();
     setStatus(`Heard: "${data.transcript}"`);
     handleQuery(data.transcript);
   } catch (error) {
@@ -249,7 +250,26 @@ micBtn.addEventListener("click", toggleVoice);
 
 /* ============================================================
    TEXT INPUT
+   query-input is a <textarea rows="1">: it grows in height as the
+   text wraps, instead of the old <input> hiding overflowing text.
+   Capped at max-height (set in CSS) beyond which it scrolls
+   internally. Enter submits (like a single-line input always did);
+   Shift+Enter inserts a newline for anyone who wants one.
    ============================================================ */
+
+function autosizeQueryInput() {
+  queryInput.style.height = "auto";
+  queryInput.style.height = `${queryInput.scrollHeight}px`;
+}
+
+queryInput.addEventListener("input", autosizeQueryInput);
+
+queryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    askForm.requestSubmit();
+  }
+});
 
 askForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -462,4 +482,3 @@ async function postJSON(path, body) {
   if (!res.ok) throw new Error(data.error || "Request failed");
   return data;
 }
-
