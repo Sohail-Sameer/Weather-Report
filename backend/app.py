@@ -1,0 +1,700 @@
+import os
+import json
+import tempfile
+import time
+from datetime import datetime
+
+import requests
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from dotenv import load_dotenv
+from ollama import Client
+from groq import Groq
+
+# ============================================================
+# CONFIGURATION & ENV LOADING
+# ============================================================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+env_candidates = [
+    os.path.join(BASE_DIR, ".env"),
+    os.path.join(BASE_DIR, "..", "Weather-Report.env"),
+    os.path.join(BASE_DIR, "..", ".env"),
+    os.path.join(BASE_DIR, "..", "..", "Weather-Report", "GroqVersion", "Weather-Report.env"),
+    os.path.join(BASE_DIR, "..", "..", ".env"),
+]
+for candidate in env_candidates:
+    if os.path.exists(candidate):
+        load_dotenv(candidate, override=False)
+
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "https://ollama.com")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
+GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+WEATHERAPI_KEY = os.getenv("WEATHERAPI_KEY")
+
+if not OLLAMA_API_KEY:
+    print("[WARNING] OLLAMA_API_KEY is not set. AI reasoning endpoints will return error.")
+if not GROQ_API_KEY:
+    print("[WARNING] GROQ_API_KEY is not set. Groq Whisper transcription will return error.")
+
+ollama_client = Client(host=OLLAMA_HOST, headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"}) if OLLAMA_API_KEY else None
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend"))
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
+
+_allowed = os.getenv("ALLOWED_ORIGINS", "*")
+_origins = [o.strip() for o in _allowed.split(",")] if _allowed != "*" else "*"
+CORS(app, resources={r"/api/*": {"origins": _origins}})
+
+LANG_CODE_TO_NAME = {"en": "English", "hi": "Hindi", "te": "Telugu"}
+LANG_NAME_TO_CODE = {"english": "en", "hindi": "hi", "telugu": "te"}
+
+ANALYZE_PROMPT = """Extract weather request data. Return ONLY JSON with location, language, forecast_days, weather_focus, time_reference. User language may be English, Hindi or Telugu. If no location, location is null. forecast_days: current/today=1, tomorrow=2, next 3 days=3, next 5 days=5, week=7. weather_focus: general,rain,temperature,humidity,uv,wind,clothing,alerts."""
+
+REPORT_PROMPT = """You are WeatherGPT, a meteorological intelligence assistant. Using the provided request, location, Open-Meteo weather data and alerts, answer accurately.
+Respond ONLY in {language}.
+Format your response using concise bullet points and bold section labels:
+- **Atmospheric Summary**: Brief condition and temperature trend.
+- **Key Meteorological Factors**: Rain chance, wind, humidity, UV index.
+- **Recommendations**: Practical advice for travel, outdoor activities, or clothing.
+Use Celsius, km/h and mm. Be concise and practical."""
+
+ASSISTANT_PROMPT = """You are WeatherGPT, an advanced Atmospheric Intelligence Assistant.
+The user is asking: "{query}".
+Current Location: {location_name}
+Current Weather Telemetry: {weather_summary}
+Language: Respond in {language}.
+
+Return a valid JSON object with the following keys:
+{{
+  "answer": "A clear, natural-language conversational response addressing the user query in {language}. Explain what the conditions mean practically for their activity or question.",
+  "optimal_window": {{
+    "title": "Optimal Activity Window",
+    "time_range": "e.g., 1:30 PM – 4:15 PM or Morning Hours",
+    "reliability": "e.g., 94% Reliability",
+    "favorable_note": "e.g., Winds < 12 km/h, pleasant humidity",
+    "caution_note": "e.g., Gusts or cooling after 5:00 PM"
+  }},
+  "route_progression": [
+    {{"label": "Origin", "place": "{location_name}", "temp": "Current Temp", "condition": "Condition notes"}},
+    {{"label": "Midway", "place": "En route", "temp": "Midway Temp", "condition": "Wind/exposure notes"}},
+    {{"label": "Destination", "place": "Target Zone", "temp": "Target Temp", "condition": "Arrival conditions"}}
+  ],
+  "attire_guidance": {{
+    "headline": "Recommended Attire",
+    "layers": ["Base layer description", "Mid/Outer layer description"],
+    "accessories": ["Hat, sunglasses, or rain gear"],
+    "thermal_rating": "Comfortable / Mild / Chilly / Cold / Hot"
+  }}
+}}
+Return ONLY the JSON object. Do not wrap in markdown quotes if possible."""
+
+# ============================================================
+# IN-MEMORY CACHE
+# ============================================================
+
+_WEATHER_CACHE = {}
+_WEATHER_CACHE_TTL_SECONDS = 900  # 15 minutes
+
+
+def _cache_get(cache_key):
+    cached = _WEATHER_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _WEATHER_CACHE_TTL_SECONDS:
+        return cached[1]
+    return None
+
+
+def _cache_set(cache_key, data):
+    _WEATHER_CACHE[cache_key] = (time.time(), data)
+
+
+def clean_json(raw_text):
+    text = (raw_text or "").replace("```json", "").replace("```", "").strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end >= start:
+        return json.loads(text[start:end + 1])
+    return json.loads(text)
+
+
+# ============================================================
+# WEATHER DATA SERVICES
+# ============================================================
+
+def _condition_text_to_wmo(text):
+    t = (text or "").lower()
+    if "thunder" in t:
+        return 95
+    if "snow" in t or "sleet" in t or "ice pellet" in t or "blizzard" in t:
+        return 73
+    if "freezing" in t and "rain" in t:
+        return 66
+    if "drizzle" in t:
+        return 51
+    if "rain" in t or "shower" in t:
+        return 63
+    if "mist" in t or "fog" in t:
+        return 45
+    if "overcast" in t:
+        return 3
+    if "cloud" in t:
+        return 2 if "partly" in t else 3
+    if "clear" in t or "sunny" in t:
+        return 0
+    return 2
+
+
+def _fetch_air_quality(latitude, longitude):
+    try:
+        r = requests.get(
+            "https://air-quality-api.open-meteo.com/v1/air-quality",
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": "pm10,pm2_5,us_aqi,european_aqi",
+            },
+            timeout=8,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            return data.get("current", {})
+    except Exception as e:
+        print(f"[air-quality] fetch failed: {e}")
+    return {"pm2_5": 8.0, "pm10": 12.0, "us_aqi": 35, "european_aqi": 20}
+
+
+def _fetch_open_meteo(latitude, longitude, forecast_days):
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "current": (
+            "temperature_2m,relative_humidity_2m,apparent_temperature,"
+            "precipitation,rain,weather_code,wind_speed_10m,wind_direction_10m,"
+            "wind_gusts_10m,surface_pressure,dew_point_2m,is_day"
+        ),
+        "hourly": (
+            "temperature_2m,relative_humidity_2m,precipitation_probability,"
+            "weather_code,uv_index,wind_speed_10m"
+        ),
+        "daily": (
+            "weather_code,temperature_2m_max,temperature_2m_min,"
+            "precipitation_sum,precipitation_probability_max,"
+            "uv_index_max,wind_speed_10m_max"
+        ),
+        "forecast_days": max(1, min(int(forecast_days), 7)),
+        "timezone": "auto",
+    }
+
+    max_attempts = 3
+    backoff_seconds = 1.5
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        response = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=15)
+
+        if response.status_code == 429:
+            last_error = requests.HTTPError(response=response)
+            if attempt < max_attempts:
+                retry_after = response.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else backoff_seconds * attempt
+                time.sleep(wait)
+                continue
+            break
+
+        response.raise_for_status()
+        data = response.json()
+
+        # Augment with Air Quality telemetry
+        aqi_data = _fetch_air_quality(latitude, longitude)
+        data["air_quality"] = aqi_data
+        return data
+
+    raise last_error
+
+
+def _fetch_weatherapi(latitude, longitude, forecast_days):
+    if not WEATHERAPI_KEY:
+        raise RuntimeError("No WEATHERAPI_KEY configured, cannot fall back")
+
+    days = max(1, min(int(forecast_days), 3))
+    response = requests.get(
+        "https://api.weatherapi.com/v1/forecast.json",
+        params={
+            "key": WEATHERAPI_KEY,
+            "q": f"{latitude},{longitude}",
+            "days": days,
+            "aqi": "yes",
+            "alerts": "no",
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    raw = response.json()
+
+    current = raw.get("current", {})
+    forecast_days_list = raw.get("forecast", {}).get("forecastday", [])
+    first_day_hours = forecast_days_list[0].get("hour", []) if forecast_days_list else []
+
+    hourly_times = [h.get("time") for h in first_day_hours]
+    hourly_temps = [h.get("temp_c") for h in first_day_hours]
+    hourly_humidity = [h.get("humidity") for h in first_day_hours]
+    hourly_rain_prob = [h.get("chance_of_rain") for h in first_day_hours]
+    hourly_weather_codes = [_condition_text_to_wmo(h.get("condition", {}).get("text")) for h in first_day_hours]
+    hourly_uv = [h.get("uv") for h in first_day_hours]
+    hourly_wind = [h.get("wind_kph") for h in first_day_hours]
+
+    aqi_obj = current.get("air_quality", {})
+    pm2_5 = aqi_obj.get("pm2_5", 8.0)
+    pm10 = aqi_obj.get("pm10", 12.0)
+    us_epa_index = aqi_obj.get("us-epa-index", 1)
+    approx_us_aqi = min(300, max(10, int(us_epa_index * 25)))
+
+    normalized = {
+        "current": {
+            "temperature_2m": current.get("temp_c"),
+            "relative_humidity_2m": current.get("humidity"),
+            "apparent_temperature": current.get("feelslike_c"),
+            "precipitation": current.get("precip_mm"),
+            "rain": current.get("precip_mm"),
+            "weather_code": _condition_text_to_wmo(current.get("condition", {}).get("text")),
+            "wind_speed_10m": current.get("wind_kph"),
+            "wind_direction_10m": current.get("wind_degree", 180),
+            "wind_gusts_10m": current.get("gust_kph", current.get("wind_kph", 0) * 1.3),
+            "surface_pressure": current.get("pressure_mb", 1013.25),
+            "dew_point_2m": current.get("dewpoint_c", (current.get("temp_c", 20) - 4)),
+            "is_day": current.get("is_day", 1),
+        },
+        "hourly": {
+            "time": hourly_times,
+            "temperature_2m": hourly_temps,
+            "relative_humidity_2m": hourly_humidity,
+            "precipitation_probability": hourly_rain_prob,
+            "weather_code": hourly_weather_codes,
+            "uv_index": hourly_uv,
+            "wind_speed_10m": hourly_wind,
+        },
+        "daily": {
+            "time": [d.get("date") for d in forecast_days_list],
+            "weather_code": [_condition_text_to_wmo(d.get("day", {}).get("condition", {}).get("text")) for d in forecast_days_list],
+            "temperature_2m_max": [d.get("day", {}).get("maxtemp_c") for d in forecast_days_list],
+            "temperature_2m_min": [d.get("day", {}).get("mintemp_c") for d in forecast_days_list],
+            "precipitation_sum": [d.get("day", {}).get("totalprecip_mm") for d in forecast_days_list],
+            "precipitation_probability_max": [d.get("day", {}).get("daily_chance_of_rain") for d in forecast_days_list],
+            "uv_index_max": [d.get("day", {}).get("uv") for d in forecast_days_list],
+            "wind_speed_10m_max": [d.get("day", {}).get("maxwind_kph") for d in forecast_days_list],
+        },
+        "air_quality": {
+            "pm2_5": pm2_5,
+            "pm10": pm10,
+            "us_aqi": approx_us_aqi,
+            "european_aqi": min(100, int(approx_us_aqi * 0.6)),
+        },
+    }
+    return normalized
+
+
+def fetch_weather(latitude, longitude, forecast_days=7):
+    forecast_days = max(1, min(int(forecast_days), 7))
+    cache_key = (round(float(latitude), 2), round(float(longitude), 2), forecast_days)
+
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        data = _fetch_open_meteo(latitude, longitude, forecast_days)
+        print(f"[weather] served by Open-Meteo for {cache_key}")
+        _cache_set(cache_key, data)
+        return data
+    except requests.HTTPError as open_meteo_error:
+        is_429 = open_meteo_error.response is not None and open_meteo_error.response.status_code == 429
+        if not is_429 or not WEATHERAPI_KEY:
+            raise
+
+        print(f"[weather] Open-Meteo 429 rate limit, falling back to WeatherAPI for {cache_key}")
+        data = _fetch_weatherapi(latitude, longitude, forecast_days)
+        _cache_set(cache_key, data)
+        return data
+
+
+def build_alerts(weather_data):
+    alerts = []
+    current = weather_data.get("current", {})
+    daily = weather_data.get("daily", {})
+
+    temperature = current.get("temperature_2m")
+    wind_speed = current.get("wind_speed_10m")
+    gusts = current.get("wind_gusts_10m")
+
+    if temperature is not None and temperature >= 40:
+        alerts.append({
+            "severity": "Warning",
+            "type": "Extreme Heat Alert",
+            "text": "Extreme heat alert: Ambient temperature is 40°C or higher. Avoid prolonged sun exposure.",
+            "protocol": ["Stay indoors in air-conditioned environments", "Drink plenty of water and electrolytes"],
+        })
+    elif temperature is not None and temperature >= 35:
+        alerts.append({
+            "severity": "Advisory",
+            "type": "High Temperature Advisory",
+            "text": "High temperature advisory: Temperature exceeds 35°C. Hydrate frequently.",
+            "protocol": ["Limit strenuous outdoor activity between 12 PM and 4 PM"],
+        })
+    elif temperature is not None and temperature <= 0:
+        alerts.append({
+            "severity": "Warning",
+            "type": "Freeze Warning",
+            "text": "Sub-zero temperatures detected. Frost and black ice risks on elevated surfaces.",
+            "protocol": ["Protect sensitive vegetation and exposed plumbing", "Drive with caution"],
+        })
+
+    if (wind_speed is not None and wind_speed >= 50) or (gusts is not None and gusts >= 65):
+        alerts.append({
+            "severity": "Advisory",
+            "type": "Gale / Strong Wind Advisory",
+            "text": f"Strong winds detected: Sustained {round(wind_speed or 0)} km/h with gusts topping {round(gusts or wind_speed or 0)} km/h.",
+            "protocol": ["Secure loose outdoor furniture and architectural elements", "Exercise caution on open highways"],
+        })
+
+    for i, p in enumerate(daily.get("precipitation_probability_max", [])):
+        day_name = "Today" if i == 0 else f"Day {i + 1}"
+        if p is not None and p >= 80:
+            alerts.append({
+                "severity": "Advisory",
+                "type": "High Precipitation Probability",
+                "text": f"Heavy rain probability on {day_name}: {p}% likelihood of rain.",
+                "protocol": ["Carry high-durability waterproof gear", "Check local drainage updates"],
+            })
+            break
+
+    for i, u in enumerate(daily.get("uv_index_max", [])):
+        if u is not None and u >= 8:
+            alerts.append({
+                "severity": "Advisory",
+                "type": "Extreme UV Index",
+                "text": f"Very high solar radiation: UV index peaking at {round(u, 1)}.",
+                "protocol": ["Apply broad-spectrum SPF 50+ sunscreen", "Wear UV400 sunglasses and protective headwear"],
+            })
+            break
+
+    return alerts
+
+
+def guess_suffix(uploaded_file):
+    name = (uploaded_file.filename or "").lower()
+    mimetype = (uploaded_file.mimetype or "").lower()
+
+    if "ogg" in mimetype or name.endswith(".ogg"):
+        return ".ogg"
+    if "wav" in mimetype or name.endswith(".wav"):
+        return ".wav"
+    if "mp4" in mimetype or name.endswith((".m4a", ".mp4")):
+        return ".m4a"
+    return ".webm"
+
+
+def normalize_language(raw_value, fallback_code):
+    value = (raw_value or "").strip().lower()
+    if value in LANG_CODE_TO_NAME:
+        code = value
+    elif value in LANG_NAME_TO_CODE:
+        code = LANG_NAME_TO_CODE[value]
+    else:
+        code = fallback_code if fallback_code in LANG_CODE_TO_NAME else "en"
+    return code, LANG_CODE_TO_NAME.get(code, "English")
+
+
+def transcribe_audio(audio_path, preferred_language="auto"):
+    if not groq_client:
+        raise RuntimeError("Groq client not configured (GROQ_API_KEY missing)")
+
+    language_hint = preferred_language if preferred_language in LANG_CODE_TO_NAME else None
+
+    with open(audio_path, "rb") as f:
+        kwargs = {
+            "file": (os.path.basename(audio_path), f.read()),
+            "model": GROQ_WHISPER_MODEL,
+            "response_format": "verbose_json",
+            "temperature": 0.0,
+        }
+        if language_hint:
+            kwargs["language"] = language_hint
+
+        result = groq_client.audio.transcriptions.create(**kwargs)
+
+    transcript = (getattr(result, "text", "") or "").strip()
+    code, name = normalize_language(getattr(result, "language", None), language_hint)
+    return {"transcript": transcript, "language_code": code, "language": name}
+
+
+# ============================================================
+# API ROUTES
+# ============================================================
+
+@app.route("/")
+def index():
+    return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "groq_whisper": bool(groq_client),
+        "groq_model": GROQ_WHISPER_MODEL,
+        "ollama": bool(ollama_client),
+        "ollama_model": OLLAMA_MODEL,
+        "weatherapi_fallback": bool(WEATHERAPI_KEY),
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
+    uploaded_file = request.files.get("audio")
+    if not uploaded_file or not uploaded_file.filename:
+        return jsonify({"error": "Audio file is required"}), 400
+
+    preferred_language = request.form.get("preferred_language", "auto").strip().lower()
+    temp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=guess_suffix(uploaded_file)) as tmp:
+            temp_path = tmp.name
+            uploaded_file.save(temp_path)
+
+        result = transcribe_audio(temp_path, preferred_language)
+        if not result["transcript"]:
+            return jsonify({"error": "No speech detected. Please speak closer to microphone."}), 422
+
+        return jsonify(result)
+    except Exception as error:
+        print("[transcribe] Error:", error)
+        return jsonify({"error": f"Voice transcription failed: {error}"}), 502
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    query = (request.get_json(silent=True) or {}).get("query", "").strip()
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+
+    if not ollama_client:
+        return jsonify({"error": "Ollama client not configured"}), 503
+
+    try:
+        response = ollama_client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": ANALYZE_PROMPT},
+                {"role": "user", "content": query},
+            ],
+            options={"temperature": 0},
+        )
+        return jsonify(clean_json(response.message.content))
+    except Exception as error:
+        print("[analyze] Error:", error)
+        return jsonify({"error": f"Query analysis failed: {error}"}), 502
+
+
+@app.route("/api/geocode")
+def api_geocode():
+    location_name = (request.args.get("location") or "").strip()
+    if not location_name:
+        return jsonify({"error": "location is required"}), 400
+
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": location_name, "count": 1, "language": "en", "format": "json"},
+            timeout=12,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("results"):
+            return jsonify({"error": f"Location '{location_name}' could not be found."}), 404
+
+        place = data["results"][0]
+        return jsonify({
+            "name": place.get("name"),
+            "admin1": place.get("admin1"),
+            "country": place.get("country"),
+            "country_code": place.get("country_code"),
+            "latitude": place.get("latitude"),
+            "longitude": place.get("longitude"),
+            "timezone": place.get("timezone", "UTC"),
+        })
+    except requests.RequestException as error:
+        return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/reverse-geocode")
+def api_reverse_geocode():
+    try:
+        latitude = float(request.args["latitude"])
+        longitude = float(request.args["longitude"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "valid latitude and longitude required"}), 400
+
+    try:
+        r = requests.get(
+            "https://api.bigdatacloud.net/data/reverse-geocode-client",
+            params={"latitude": latitude, "longitude": longitude, "localityLanguage": "en"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            city = data.get("locality") or data.get("city") or data.get("principalSubdivision") or "Current Location"
+            country = data.get("countryName") or data.get("countryCode") or ""
+            return jsonify({
+                "name": city,
+                "admin1": data.get("principalSubdivision"),
+                "country": country,
+                "latitude": latitude,
+                "longitude": longitude,
+            })
+    except Exception as e:
+        print("[reverse-geocode] Error:", e)
+
+    return jsonify({
+        "name": "Current Location",
+        "country": "",
+        "latitude": latitude,
+        "longitude": longitude,
+    })
+
+
+@app.route("/api/weather")
+def api_weather():
+    try:
+        latitude = float(request.args["latitude"])
+        longitude = float(request.args["longitude"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "valid latitude and longitude are required"}), 400
+
+    forecast_days = request.args.get("forecast_days", 7)
+
+    try:
+        weather_data = fetch_weather(latitude, longitude, forecast_days)
+        alerts = build_alerts(weather_data)
+        air_quality = weather_data.get("air_quality", {})
+        return jsonify({
+            "weather": weather_data,
+            "alerts": alerts,
+            "air_quality": air_quality,
+        })
+    except requests.HTTPError as error:
+        if error.response is not None and error.response.status_code == 429:
+            message = "Weather API rate-limited. Please try again in a few moments."
+            return jsonify({"error": message}), 503
+        return jsonify({"error": str(error)}), 502
+    except Exception as error:
+        print("[weather] Error:", error)
+        return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/report", methods=["POST"])
+def api_report():
+    body = request.get_json(silent=True) or {}
+    language = body.get("language", "English")
+
+    if not ollama_client:
+        return jsonify({"error": "Ollama client not configured"}), 503
+
+    try:
+        response = ollama_client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": REPORT_PROMPT.format(language=language)},
+                {"role": "user", "content": json.dumps(body, ensure_ascii=False)},
+            ],
+            options={"temperature": 0.2},
+        )
+        return jsonify({"report": response.message.content})
+    except Exception as error:
+        print("[report] Error:", error)
+        return jsonify({"error": f"Report generation failed: {error}"}), 502
+
+
+@app.route("/api/assistant", methods=["POST"])
+def api_assistant():
+    body = request.get_json(silent=True) or {}
+    query = body.get("query", "").strip()
+    location_name = body.get("location_name", "Local Area")
+    weather_summary = body.get("weather_summary", "Partly cloudy, 22°C")
+    language = body.get("language", "English")
+
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+
+    if not ollama_client:
+        return jsonify({"error": "Ollama client not configured"}), 503
+
+    prompt = ASSISTANT_PROMPT.format(
+        query=query,
+        location_name=location_name,
+        weather_summary=weather_summary,
+        language=language,
+    )
+
+    try:
+        response = ollama_client.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": "You are WeatherGPT. Output strictly JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            options={"temperature": 0.2},
+        )
+        structured = clean_json(response.message.content)
+        return jsonify(structured)
+    except Exception as error:
+        print("[assistant] Fallback formatting due to:", error)
+        try:
+            simple_resp = ollama_client.chat(
+                model=OLLAMA_MODEL,
+                messages=[
+                    {"role": "system", "content": f"You are WeatherGPT. Respond in {language}."},
+                    {"role": "user", "content": f"Location: {location_name}. Conditions: {weather_summary}. Question: {query}"},
+                ],
+            )
+            return jsonify({
+                "answer": simple_resp.message.content,
+                "optimal_window": {
+                    "title": "Optimal Activity Window",
+                    "time_range": "Check hourly forecast",
+                    "reliability": "90%",
+                    "favorable_note": "Stable pressure profile",
+                    "caution_note": "Dress in comfortable layers",
+                },
+                "route_progression": [],
+                "attire_guidance": {
+                    "headline": "Attire Recommendation",
+                    "layers": ["Breathable everyday wear"],
+                    "accessories": ["Weather appropriate accessories"],
+                    "thermal_rating": "Mild",
+                },
+            })
+        except Exception as err2:
+            return jsonify({"error": f"Assistant generation failed: {err2}"}), 502
+
+
+# ============================================================
+# ENTRYPOINT
+# ============================================================
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    print(f"WeatherGPT Atmospheric Intel running at http://0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port, debug=True)
