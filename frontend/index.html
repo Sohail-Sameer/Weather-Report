@@ -229,7 +229,43 @@
     <section id="view-forecast" class="app-view flex flex-col w-full gap-5">
 
       <!-- Ambient Sky Canvas Card -->
-      <div class="relative w-full overflow-hidden rounded-3xl p-5 bg-gradient-to-b from-surface-navy/40 via-surface-container/60 to-surface-container-low border border-glass-border/30 shadow-2xl">
+      <div id="weather-hero-card" class="weather-hero-card relative w-full overflow-hidden rounded-3xl p-5 bg-transparent border border-glass-border/30 shadow-2xl">
+        <!-- Dynamic animated weather scene. The JavaScript swaps the scene
+             automatically from the live Open-Meteo weather code. -->
+        <div id="weather-scene" class="weather-scene bg-cloud" aria-hidden="true">
+          <div id="weather-layer-sun" class="weather-scene-layer" style="display:none;">
+            <div class="weather-sun-rays"></div>
+            <div class="weather-sun-orb"></div>
+          </div>
+
+          <div id="weather-layer-cloud" class="weather-scene-layer" style="display:none;">
+            <div class="weather-cloud-drift weather-cloud-1">
+              <svg width="220" height="90" viewBox="0 0 220 90"><ellipse cx="70" cy="55" rx="65" ry="32" fill="#fff"/><ellipse cx="130" cy="42" rx="50" ry="28" fill="#fff"/><ellipse cx="170" cy="58" rx="42" ry="24" fill="#fff"/></svg>
+            </div>
+            <div class="weather-cloud-drift weather-cloud-2">
+              <svg width="160" height="70" viewBox="0 0 160 70"><ellipse cx="55" cy="42" rx="50" ry="24" fill="#fff"/><ellipse cx="100" cy="34" rx="38" ry="20" fill="#fff"/></svg>
+            </div>
+            <div class="weather-cloud-drift weather-cloud-3">
+              <svg width="130" height="60" viewBox="0 0 130 60"><ellipse cx="45" cy="36" rx="40" ry="20" fill="#fff"/><ellipse cx="85" cy="30" rx="30" ry="16" fill="#fff"/></svg>
+            </div>
+          </div>
+
+          <div id="weather-layer-rain" class="weather-scene-layer" style="display:none;">
+            <div class="weather-rain-cloud">
+              <svg width="240" height="110" viewBox="0 0 240 110"><ellipse cx="75" cy="58" rx="70" ry="34" fill="#4a5164"/><ellipse cx="140" cy="44" rx="54" ry="30" fill="#525a6e"/><ellipse cx="182" cy="60" rx="45" ry="26" fill="#3f4657"/></svg>
+            </div>
+            <div class="weather-rain-mist"></div>
+            <div id="weather-drop-field" class="weather-drop-field"></div>
+            <div id="weather-puddle" class="weather-puddle"></div>
+            <div class="weather-flash"></div>
+          </div>
+
+          <div id="weather-layer-night" class="weather-scene-layer" style="display:none;">
+            <div class="weather-moon"></div>
+          </div>
+          <div class="weather-scene-vignette"></div>
+        </div>
+
         <!-- Visual Glow Circles -->
         <div class="absolute -top-12 -left-10 w-48 h-48 rounded-full bg-secondary-container/40 blur-3xl pointer-events-none"></div>
         <div class="absolute top-4 -right-10 w-56 h-56 rounded-full bg-primary-container/20 blur-3xl pointer-events-none"></div>
