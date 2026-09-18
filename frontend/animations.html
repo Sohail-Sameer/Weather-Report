@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather Scene Animations — Standalone</title>
+<style>
+  /* =========================================================
+     WEATHER SCENE ANIMATIONS — standalone, no dependencies
+     Drop the CSS + HTML structure + JS into any web/React/
+     Vue project. Swap scenes by toggling one class name.
+     ========================================================= */
+
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    background:#0a0f1a;
+    font-family:system-ui,sans-serif;
+    padding:24px;
+  }
+
+  /* Container that holds whichever scene is active.
+     This is the ONLY element whose class you need to change
+     at runtime: .bg-sun / .bg-cloud / .bg-rain / .bg-night   */
+  .scene{
+    position:relative;
+    width:100%;
+    max-width:380px;
+    height:520px;
+    border-radius:28px;
+    overflow:hidden;
+    transition: background 1s ease;
+  }
+
+  /* ---------- SUNNY ---------- */
+  .bg-sun{
+    background: linear-gradient(160deg,#3f8fd6 0%, #6fb3e8 38%, #a9d4ec 100%);
+  }
+  .sun-orb{
+    position:absolute; top:16%; left:50%; transform:translateX(-50%);
+    width:150px; height:150px;
+  }
+  .sun-orb::before{
+    content:"";
+    position:absolute; inset:0;
+    background: radial-gradient(circle, #fff4cf 0%, #ffd873 45%, rgba(255,216,115,0) 72%);
+    border-radius:50%;
+    animation: pulse-sun 4.5s ease-in-out infinite;
+  }
+  .sun-rays{
+    position:absolute; inset:-70px;
+    background: conic-gradient(from 0deg,
+      rgba(255,244,205,0) 0deg, rgba(255,244,205,.35) 8deg, rgba(255,244,205,0) 18deg,
+      rgba(255,244,205,0) 40deg, rgba(255,244,205,.3) 48deg, rgba(255,244,205,0) 58deg,
+      rgba(255,244,205,0) 90deg, rgba(255,244,205,.32) 98deg, rgba(255,244,205,0) 108deg,
+      rgba(255,244,205,0) 150deg, rgba(255,244,205,.28) 158deg, rgba(255,244,205,0) 168deg,
+      rgba(255,244,205,0) 210deg, rgba(255,244,205,.3) 218deg, rgba(255,244,205,0) 228deg,
+      rgba(255,244,205,0) 260deg, rgba(255,244,205,.3) 268deg, rgba(255,244,205,0) 278deg,
+      rgba(255,244,205,0) 320deg, rgba(255,244,205,.32) 328deg, rgba(255,244,205,0) 338deg);
+    border-radius:50%;
+    mix-blend-mode: screen;
+    animation: spin-rays 22s linear infinite;
+  }
+  @keyframes spin-rays{ to{ transform: rotate(360deg); } }
+  @keyframes pulse-sun{ 0%,100%{ opacity:1; transform:scale(1);} 50%{ opacity:.88; transform:scale(1.05);} }
+
+  /* ---------- CLOUDY ---------- */
+  .bg-cloud{
+    background: linear-gradient(170deg,#4d5b72 0%, #6d7c93 45%, #93a1b6 100%);
+  }
+  .cloud-drift{ position:absolute; opacity:.85; filter: drop-shadow(0 8px 12px rgba(0,0,0,.08)); }
+  .cloud-1{ top:14%; left:-20%; width:220px; animation: drift1 34s linear infinite; }
+  .cloud-2{ top:26%; left:-40%; width:160px; animation: drift2 46s linear infinite; opacity:.65; }
+  .cloud-3{ top:6%;  left:-30%; width:130px; animation: drift1 26s linear infinite; opacity:.5; }
+  @keyframes drift1{ from{ transform:translateX(0);} to{ transform:translateX(560px);} }
+  @keyframes drift2{ from{ transform:translateX(0);} to{ transform:translateX(600px);} }
+
+  /* ---------- RAIN ---------- */
+  .bg-rain{
+    background: linear-gradient(180deg,#161d2c 0%, #232f47 45%, #2f3d59 78%, #38465f 100%);
+  }
+  .rain-cloud-shape{
+    position:absolute; top:5%; left:50%; transform:translateX(-50%);
+    width:240px; opacity:.95;
+    filter:drop-shadow(0 14px 18px rgba(0,0,0,.35));
+    animation: cloud-flicker 8s infinite;
+  }
+  @keyframes cloud-flicker{
+    0%, 91%, 100%{ filter:drop-shadow(0 14px 18px rgba(0,0,0,.35)) brightness(1); }
+    91.5%{ filter:drop-shadow(0 14px 18px rgba(0,0,0,.35)) brightness(1.5); }
+  }
+  .rain-mist{
+    position:absolute; inset:0; pointer-events:none;
+    background: linear-gradient(180deg, rgba(120,140,170,0) 0%, rgba(120,140,170,.10) 55%, rgba(140,158,185,.16) 100%);
+  }
+  /* Each raindrop is a thin gradient bar animated top-to-bottom.
+     Randomized length/speed/delay is added via JS below, so
+     they don't look like a repeating tile. */
+  .drop-field{ position:absolute; inset:0; overflow:hidden; }
+  .drop{
+    position:absolute; top:-8%; width:1.5px; border-radius:2px;
+    background: linear-gradient(180deg, rgba(210,228,255,0) 0%, rgba(210,228,255,.85) 55%, rgba(230,240,255,.95) 100%);
+    animation-name: drop-fall;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  @keyframes drop-fall{
+    0%{ transform: translate(0,0); opacity:0; }
+    6%{ opacity:1; }
+    92%{ opacity:1; }
+    100%{ transform: translate(-34px, 780px); opacity:0; } /* -34px = wind drift */
+  }
+  .puddle{
+    position:absolute; left:0; right:0; bottom:0; height:22%; overflow:hidden;
+    background: linear-gradient(180deg, rgba(90,110,140,0) 0%, rgba(70,90,120,.35) 100%);
+  }
+  .ripple{
+    position:absolute; bottom:6px; width:26px; height:8px;
+    border:1.5px solid rgba(210,228,255,.55);
+    border-radius:50%;
+    opacity:0;
+    animation-name: ripple-out;
+    animation-timing-function: ease-out;
+    animation-iteration-count: infinite;
+  }
+  @keyframes ripple-out{
+    0%{ transform: scale(.3); opacity:.6; }
+    75%{ opacity:.15; }
+    100%{ transform: scale(1.6); opacity:0; }
+  }
+  .flash{
+    position:absolute; inset:0; background:#eaf2ff; opacity:0;
+    pointer-events:none; mix-blend-mode:screen;
+  }
+  .bg-rain .flash{ animation: lightning 8s infinite; }
+  @keyframes lightning{
+    0%, 91%, 100%{ opacity:0; }
+    91.4%{ opacity:.65; }
+    91.7%{ opacity:.05; }
+    92.0%{ opacity:.4; }
+    92.4%{ opacity:0; }
+  }
+
+  /* ---------- NIGHT ---------- */
+  .bg-night{
+    background: linear-gradient(180deg,#060a16 0%, #0d1428 55%, #131b34 100%);
+  }
+  .moon{
+    position:absolute; top:14%; left:50%; transform:translateX(-50%);
+    width:96px; height:96px; border-radius:50%;
+    background: radial-gradient(circle at 35% 32%, #fdfaf0 0%, #ece6cf 55%, #cfc9ae 100%);
+    box-shadow: 0 0 60px 12px rgba(230,225,200,.28);
+  }
+  .star{
+    position:absolute; border-radius:50%; background:#fff;
+    animation: twinkle 3.4s ease-in-out infinite;
+  }
+  @keyframes twinkle{ 0%,100%{ opacity:.25;} 50%{ opacity:1;} }
+
+  /* Respect users who've asked for reduced motion */
+  @media (prefers-reduced-motion: reduce){
+    .sun-rays, .sun-orb::before, .cloud-1, .cloud-2, .cloud-3,
+    .drop, .ripple, .flash, .rain-cloud-shape, .star{ animation:none !important; }
+    .drop{ opacity:.5 !important; }
+  }
+
+  /* demo-only controls, not part of the reusable pattern */
+  .picker{ display:flex; gap:8px; margin-top:16px; }
+  .picker button{
+    padding:9px 14px; border-radius:10px; border:1px solid #2a3346;
+    background:#131c2c; color:#cfd6e4; font-family:inherit; font-size:.8rem;
+    font-weight:600; cursor:pointer;
+  }
+  .picker button.active{ background:#fff; color:#111; border-color:transparent; }
+</style>
+</head>
+<body>
+
+<div class="scene bg-sun" id="scene">
+  <!-- SUN layer -->
+  <div id="layerSun">
+    <div class="sun-rays"></div>
+    <div class="sun-orb"></div>
+  </div>
+
+  <!-- CLOUD layer -->
+  <div id="layerCloud" style="display:none;">
+    <div class="cloud-drift cloud-1">
+      <svg width="220" height="90" viewBox="0 0 220 90"><ellipse cx="70" cy="55" rx="65" ry="32" fill="#fff"/><ellipse cx="130" cy="42" rx="50" ry="28" fill="#fff"/><ellipse cx="170" cy="58" rx="42" ry="24" fill="#fff"/></svg>
+    </div>
+    <div class="cloud-drift cloud-2">
+      <svg width="160" height="70" viewBox="0 0 160 70"><ellipse cx="55" cy="42" rx="50" ry="24" fill="#fff"/><ellipse cx="100" cy="34" rx="38" ry="20" fill="#fff"/></svg>
+    </div>
+    <div class="cloud-drift cloud-3">
+      <svg width="130" height="60" viewBox="0 0 130 60"><ellipse cx="45" cy="36" rx="40" ry="20" fill="#fff"/><ellipse cx="85" cy="30" rx="30" ry="16" fill="#fff"/></svg>
+    </div>
+  </div>
+
+  <!-- RAIN layer -->
+  <div id="layerRain" style="display:none;">
+    <div class="rain-cloud-shape">
+      <svg width="240" height="110" viewBox="0 0 240 110"><ellipse cx="75" cy="58" rx="70" ry="34" fill="#4a5164"/><ellipse cx="140" cy="44" rx="54" ry="30" fill="#525a6e"/><ellipse cx="182" cy="60" rx="45" ry="26" fill="#3f4657"/></svg>
+    </div>
+    <div class="rain-mist"></div>
+    <div class="drop-field" id="dropField"></div>
+    <div class="puddle" id="puddle"></div>
+    <div class="flash"></div>
+  </div>
+
+  <!-- NIGHT layer -->
+  <div id="layerNight" style="display:none;">
+    <div class="moon"></div>
+  </div>
+</div>
+
+<div class="picker">
+  <button class="active" onclick="setScene('sun', this)">Sunny</button>
+  <button onclick="setScene('cloud', this)">Cloudy</button>
+  <button onclick="setScene('rain', this)">Rain</button>
+  <button onclick="setScene('night', this)">Night</button>
+</div>
+
+<script>
+/* =========================================================
+   Scene switcher — swap this out for your own state logic.
+   The only thing that matters: change the container's class
+   to bg-sun / bg-cloud / bg-rain / bg-night, and show/hide
+   the matching layer div.
+   ========================================================= */
+function setScene(scene, btn){
+  document.querySelectorAll('.picker button').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+
+  document.getElementById('scene').className = 'scene bg-' + scene;
+
+  document.getElementById('layerSun').style.display   = scene === 'sun'   ? 'block' : 'none';
+  document.getElementById('layerCloud').style.display = scene === 'cloud' ? 'block' : 'none';
+  document.getElementById('layerRain').style.display  = scene === 'rain'  ? 'block' : 'none';
+  document.getElementById('layerNight').style.display = scene === 'night' ? 'block' : 'none';
+
+  if(scene === 'rain') seedRain();
+  if(scene === 'night') seedStars();
+}
+
+/* Generates randomized raindrops so they don't look like a
+   repeating tile. Position / length / speed / delay are all
+   randomized once, then CSS handles the actual animation. */
+function seedRain(){
+  const field = document.getElementById('dropField');
+  if(field.querySelector('.drop')) return; // already seeded
+
+  for(let i = 0; i < 70; i++){
+    const drop = document.createElement('div');
+    drop.className = 'drop';
+    const length = 22 + Math.random() * 30;      // px
+    const duration = 0.45 + Math.random() * 0.5; // seconds to fall
+    drop.style.left = Math.random() * 104 + '%';
+    drop.style.height = length + 'px';
+    drop.style.opacity = (0.4 + Math.random() * 0.5).toFixed(2);
+    drop.style.animationDuration = duration.toFixed(2) + 's';
+    drop.style.animationDelay = (Math.random() * 1.2).toFixed(2) + 's';
+    field.appendChild(drop);
+  }
+
+  const puddle = document.getElementById('puddle');
+  if(puddle.querySelector('.ripple')) return;
+
+  for(let i = 0; i < 10; i++){
+    const ripple = document.createElement('div');
+    ripple.className = 'ripple';
+    ripple.style.left = Math.random() * 90 + '%';
+    ripple.style.animationDuration = (1.1 + Math.random() * 0.8).toFixed(2) + 's';
+    ripple.style.animationDelay = (Math.random() * 2).toFixed(2) + 's';
+    puddle.appendChild(ripple);
+  }
+}
+
+/* Same idea for stars: random position + random twinkle delay
+   so they don't all pulse in sync. */
+function seedStars(){
+  const layer = document.getElementById('layerNight');
+  if(layer.querySelector('.star')) return;
+
+  for(let i = 0; i < 40; i++){
+    const star = document.createElement('div');
+    star.className = 'star';
+    const size = Math.random() * 2 + 1;
+    star.style.width = size + 'px';
+    star.style.height = size + 'px';
+    star.style.top = Math.random() * 70 + '%';
+    star.style.left = Math.random() * 100 + '%';
+    star.style.animationDelay = (Math.random() * 3) + 's';
+    layer.appendChild(star);
+  }
+}
+</script>
+
+</body>
+</html>
