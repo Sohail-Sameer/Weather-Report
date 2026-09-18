@@ -108,7 +108,6 @@ const els = {
   // Forecast Screen
   heroPlaceLabel: document.getElementById("hero-place-label"),
   heroTemperature: document.getElementById("hero-temperature"),
-  heroConditionIcon: document.getElementById("hero-condition-icon"),
   heroConditionText: document.getElementById("hero-condition-text"),
   heroTempHigh: document.getElementById("hero-temp-high"),
   heroTempLow: document.getElementById("hero-temp-low"),
@@ -578,7 +577,6 @@ function renderForecastScreen() {
   if (els.heroTempHigh) els.heroTempHigh.textContent = `${high}°`;
   if (els.heroTempLow) els.heroTempLow.textContent = `${low}°`;
   if (els.heroConditionText) els.heroConditionText.textContent = CONDITION_TITLES[cat] || "Clear";
-  if (els.heroConditionIcon) els.heroConditionIcon.textContent = CONDITION_ICONS[cat] || "wb_sunny";
 
   // Telemetry Grid
   const windKph = Math.round(current.wind_speed_10m ?? 12);
