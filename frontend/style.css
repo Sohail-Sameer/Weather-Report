@@ -506,3 +506,135 @@ body[data-condition="thunder"] #ambient-glow-2 {
   }
   .weather-drop { opacity: .5 !important; }
 }
+
+/* ============================================================
+   HERO WEATHER BACKGROUND
+   The supplied animations.html scene is a BACKGROUND layer only.
+   The hero's weather data remains foreground content.
+   ============================================================ */
+
+.weather-hero-card {
+  isolation: isolate;
+  min-height: 292px;
+  background: transparent !important;
+}
+
+.weather-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: background 1s ease, filter 1s ease;
+}
+
+/* Dark atmospheric wash keeps text readable without hiding the animation. */
+.weather-scene-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 20, .08) 0%, rgba(5, 10, 20, .18) 55%, rgba(5, 10, 20, .38) 100%),
+    radial-gradient(circle at 50% 45%, rgba(5, 10, 20, 0) 20%, rgba(5, 10, 20, .24) 100%);
+}
+
+/* Foreground weather information sits cleanly above the animated scene. */
+.weather-hero-card > *:not(.weather-scene) {
+  position: relative;
+  z-index: 10;
+}
+
+.hero-content {
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .32);
+}
+
+#hero-temperature {
+  text-shadow: 0 4px 24px rgba(0, 0, 0, .42);
+}
+
+/* Make the animation feel like an environment rather than a giant weather icon. */
+.weather-sun-orb {
+  top: -12%;
+  left: 72%;
+  width: 170px;
+  height: 170px;
+  opacity: .72;
+}
+
+.weather-sun-rays {
+  top: -35%;
+  left: calc(72% - 145px);
+  opacity: .42;
+}
+
+.weather-cloud-1 {
+  top: 7%;
+  left: -24%;
+  opacity: .42;
+}
+
+.weather-cloud-2 {
+  top: 25%;
+  left: -36%;
+  opacity: .30;
+}
+
+.weather-cloud-3 {
+  top: 2%;
+  left: -20%;
+  opacity: .22;
+}
+
+.weather-rain-cloud {
+  top: -5%;
+  left: 68%;
+  transform: translateX(-50%) scale(.9);
+  transform-origin: top center;
+  opacity: .62;
+}
+
+.weather-rain-mist {
+  opacity: .7;
+}
+
+.weather-drop {
+  opacity: .5;
+}
+
+.weather-puddle {
+  height: 16%;
+  opacity: .45;
+}
+
+.weather-moon {
+  top: -10%;
+  left: 78%;
+  width: 105px;
+  height: 105px;
+  opacity: .62;
+}
+
+.weather-star {
+  opacity: .6;
+}
+
+/* The background remains visible on small screens without covering the text. */
+@media (max-width: 640px) {
+  .weather-sun-orb {
+    left: 82%;
+    opacity: .58;
+  }
+  .weather-sun-rays {
+    left: calc(82% - 125px);
+    opacity: .32;
+  }
+  .weather-rain-cloud {
+    left: 78%;
+    transform: translateX(-50%) scale(.72);
+  }
+  .weather-moon {
+    left: 84%;
+    opacity: .50;
+  }
+}
