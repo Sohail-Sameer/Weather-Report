@@ -515,7 +515,7 @@ body[data-condition="thunder"] #ambient-glow-2 {
 
 .weather-hero-card {
   isolation: isolate;
-  min-height: 292px;
+  min-height: 260px;
   background: transparent !important;
 }
 
@@ -545,8 +545,26 @@ body[data-condition="thunder"] #ambient-glow-2 {
   z-index: 10;
 }
 
+/* Give the lower part of the scene a soft atmospheric horizon. This is part
+   of the background, not a foreground weather icon. */
+.weather-scene::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -18%;
+  height: 42%;
+  background: radial-gradient(ellipse at center bottom, rgba(255,255,255,.10), rgba(255,255,255,0) 68%);
+  opacity: .7;
+  pointer-events: none;
+}
+
 .hero-content {
   text-shadow: 0 2px 14px rgba(0, 0, 0, .32);
+  /* The top row stays pinned to the top; the weather data is vertically
+     balanced inside the remaining hero space instead of bunching upward. */
+  margin-top: 42px !important;
+  margin-bottom: 18px !important;
 }
 
 #hero-temperature {
