@@ -472,6 +472,91 @@ async function refreshWeatherData() {
   }
 }
 
+
+// ============================================================
+// LIVE WEATHER SCENE
+// ============================================================
+
+const WEATHER_SCENE_BY_CONDITION = {
+  "clear-day": "sun",
+  "clear-night": "night",
+  "partly-cloudy-day": "cloud",
+  "partly-cloudy-night": "night",
+  "cloudy": "cloud",
+  "fog": "cloud",
+  "drizzle": "rain",
+  "rain": "rain",
+  "snow": "cloud",
+  "thunder": "rain",
+};
+
+function seedWeatherRain() {
+  const field = document.getElementById("weather-drop-field");
+  if (!field || field.querySelector(".weather-drop")) return;
+
+  for (let i = 0; i < 70; i += 1) {
+    const drop = document.createElement("div");
+    drop.className = "weather-drop";
+    drop.style.left = `${Math.random() * 104}%`;
+    drop.style.height = `${22 + Math.random() * 30}px`;
+    drop.style.opacity = (0.4 + Math.random() * 0.5).toFixed(2);
+    drop.style.animationDuration = `${(0.45 + Math.random() * 0.5).toFixed(2)}s`;
+    drop.style.animationDelay = `${(Math.random() * 1.2).toFixed(2)}s`;
+    field.appendChild(drop);
+  }
+
+  const puddle = document.getElementById("weather-puddle");
+  if (!puddle || puddle.querySelector(".weather-ripple")) return;
+
+  for (let i = 0; i < 10; i += 1) {
+    const ripple = document.createElement("div");
+    ripple.className = "weather-ripple";
+    ripple.style.left = `${Math.random() * 90}%`;
+    ripple.style.animationDuration = `${(1.1 + Math.random() * 0.8).toFixed(2)}s`;
+    ripple.style.animationDelay = `${(Math.random() * 2).toFixed(2)}s`;
+    puddle.appendChild(ripple);
+  }
+}
+
+function seedWeatherStars() {
+  const layer = document.getElementById("weather-layer-night");
+  if (!layer || layer.querySelector(".weather-star")) return;
+
+  for (let i = 0; i < 40; i += 1) {
+    const star = document.createElement("div");
+    star.className = "weather-star";
+    const size = Math.random() * 2 + 1;
+    star.style.width = `${size}px`;
+    star.style.height = `${size}px`;
+    star.style.top = `${Math.random() * 70}%`;
+    star.style.left = `${Math.random() * 100}%`;
+    star.style.animationDelay = `${Math.random() * 3}s`;
+    layer.appendChild(star);
+  }
+}
+
+function setWeatherScene(condition) {
+  const scene = document.getElementById("weather-scene");
+  if (!scene) return;
+
+  const sceneName = WEATHER_SCENE_BY_CONDITION[condition] || "cloud";
+  scene.className = `weather-scene bg-${sceneName}`;
+
+  const layers = {
+    sun: document.getElementById("weather-layer-sun"),
+    cloud: document.getElementById("weather-layer-cloud"),
+    rain: document.getElementById("weather-layer-rain"),
+    night: document.getElementById("weather-layer-night"),
+  };
+
+  Object.entries(layers).forEach(([name, layer]) => {
+    if (layer) layer.style.display = name === sceneName ? "block" : "none";
+  });
+
+  if (sceneName === "rain") seedWeatherRain();
+  if (sceneName === "night") seedWeatherStars();
+}
+
 function renderForecastScreen() {
   const current = state.weather?.current || {};
   const daily = state.weather?.daily || {};
@@ -486,6 +571,7 @@ function renderForecastScreen() {
   const cat = getConditionCategory(wCode, isDay);
 
   document.body.dataset.condition = cat;
+  setWeatherScene(cat);
 
   if (els.heroTemperature) els.heroTemperature.textContent = temp;
   if (els.heroTempFeels) els.heroTempFeels.textContent = `${feels}°`;
