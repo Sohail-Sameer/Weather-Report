@@ -266,10 +266,6 @@
           <div class="weather-scene-vignette"></div>
         </div>
 
-        <!-- Visual Glow Circles -->
-        <div class="absolute -top-12 -left-10 w-48 h-48 rounded-full bg-secondary-container/40 blur-3xl pointer-events-none"></div>
-        <div class="absolute top-4 -right-10 w-56 h-56 rounded-full bg-primary-container/20 blur-3xl pointer-events-none"></div>
-
         <!-- Location Pin & Sync Status -->
         <div class="relative z-10 flex items-center justify-between">
           <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-glass-base backdrop-blur-md text-ink-primary border border-glass-border/20">
@@ -283,22 +279,7 @@
         </div>
 
         <!-- Hero Dynamic Core -->
-        <div class="relative z-10 flex flex-col items-center text-center mt-3 mb-2">
-          <!-- Animated Weather Glyph Component -->
-          <div id="hero-weather-glyph" class="relative w-28 h-20 flex items-center justify-center">
-            <div class="absolute top-1 right-5 w-12 h-12 rounded-full bg-gradient-to-tr from-primary-container to-amber-300 shadow-[0_0_24px_rgba(255,184,79,0.5)]"></div>
-            <svg class="relative z-10 w-24 h-16 drop-shadow-[0_10px_16px_rgba(0,0,0,0.35)]" fill="none" viewBox="0 0 100 64">
-              <path d="M26 56h52a16 16 0 0 0 4-31.5 22 22 0 0 0-41.8-8.5A17.99 17.99 0 0 0 14 36c0 11 9 20 20 20h-8z" fill="url(#heroCloudGrad)"></path>
-              <defs>
-                <linearGradient gradientUnits="userSpaceOnUse" id="heroCloudGrad" x1="10" x2="84" y1="12" y2="56">
-                  <stop stop-color="#95cdf5"></stop>
-                  <stop offset="1" stop-color="#3d82c4"></stop>
-                </linearGradient>
-              </defs>
-            </svg>
-            <div class="absolute -bottom-1 left-7 w-14 h-1 bg-tertiary-fixed-dim/40 rounded-full blur-[1px]"></div>
-          </div>
-
+        <div class="hero-content relative z-10 flex flex-col items-center text-center mt-3 mb-2">
           <!-- Hero Temperature Display -->
           <div class="flex items-baseline justify-center tracking-tighter mt-1">
             <span id="hero-temperature" class="font-display-hero text-[64px] leading-none text-ink-primary font-light">64</span>
@@ -306,8 +287,7 @@
           </div>
 
           <!-- Dynamic Condition Pill -->
-          <div class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-glass-elevated border border-glass-border/40 backdrop-blur-md text-ink-primary shadow-sm mt-1">
-            <span id="hero-condition-icon" class="material-symbols-outlined text-secondary text-[16px]">partly_cloudy_day</span>
+          <div class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-glass-elevated/80 border border-glass-border/40 backdrop-blur-md text-ink-primary shadow-sm mt-2">
             <span id="hero-condition-text" class="font-label-section text-xs font-medium">Partly Cloudy</span>
           </div>
 
