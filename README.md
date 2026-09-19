@@ -1,6 +1,7 @@
 # WeatherGPT • Atmospheric Intelligence
 
 A mobile-first, voice-enabled, multilingual weather Progressive Web App (PWA) that combines live meteorological telemetry with AI-generated narrative forecasts, conversational Q&A, and safety alerts — in **English, Hindi, and Telugu**.
+Feel free to test it at **https://weather-report-9rp7.onrender.com/**
 
 ---
 
